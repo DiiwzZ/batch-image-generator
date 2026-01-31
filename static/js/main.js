@@ -245,17 +245,30 @@ function hideApiKeyModal() {
 
 /**
  * ตรวจสอบว่ามี API key หรือไม่ (ใช้ตอนโหลดหน้า)
- * ถ้ายังไม่มี key จะเปิด modal เตือน (ปิดได้ — ถ้ายังไม่ใส่จะเตือนอีกเมื่อกด Generate)
+ * ถ้ายังไม่มี key จะเปิด modal เตือน (ปิดได้)
+ * ปุ่ม API Key แสดงตลอด — กรณีปิด modal โดยไม่ใส่ จะกดปุ่มเพื่อเปิดได้อีก
  */
 function checkApiKey() {
     const apiKey = getApiKey();
+    apiKeySettings.style.display = 'block';  // แสดงปุ่มตลอด
+    updateApiKeyButtonLabel();
     if (!apiKey) {
         showApiKeyModal();
-        apiKeySettings.style.display = 'none';
         return false;
     }
-    apiKeySettings.style.display = 'block';
     return true;
+}
+
+/**
+ * อัปเดตข้อความปุ่ม API Key ตามว่ามี key หรือไม่
+ */
+function updateApiKeyButtonLabel() {
+    if (!changeApiKeyBtn) return;
+    const hasKey = !!getApiKey();
+    const text = changeApiKeyBtn.querySelector('.btn-api-key-text');
+    if (text) {
+        text.textContent = hasKey ? 'Change API Key' : 'Set API Key';
+    }
 }
 
 /**
@@ -323,7 +336,7 @@ async function handleTestAndSaveKey() {
         // ซ่อน modal หลัง 1 วินาที
         setTimeout(() => {
             hideApiKeyModal();
-            apiKeySettings.style.display = 'block';
+            updateApiKeyButtonLabel();
             showToast('API key saved successfully', 'success');
         }, 1000);
     } else {
