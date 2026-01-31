@@ -14,8 +14,8 @@ A beautiful sunset
 **Settings:**
 - Model: Nano Banana (Fast)
 - Mode: Sequential
-- Prefix: (ว่าง)
-- Suffix: (ว่าง)
+- Master Prompts: (ว่าง)
+- Negative Prompts: (ว่าง)
 
 ---
 
@@ -31,8 +31,8 @@ A steampunk airship
 **Settings:**
 - Model: Nano Banana Pro (Quality) ⭐
 - Mode: Sequential
-- Prefix: `high quality, highly detailed, professional photography, `
-- Suffix: `, 4k, sharp focus`
+- Master Prompts: `high quality, highly detailed, professional photography, `
+- Negative Prompts: `blurry, low quality, distorted`
 
 ---
 
@@ -43,14 +43,14 @@ A steampunk airship
 Animal 1
 Animal 2
 Animal 3
-...
+... 
 ```
 
 **Settings:**
 - Model: Nano Banana (Fast) ⭐
 - Mode: Parallel ⚡
-- Prefix: `simple illustration of `
-- Suffix: (ว่าง)
+- Master Prompts: `simple illustration of `
+- Negative Prompts: (ว่าง)
 
 ---
 
@@ -70,8 +70,9 @@ a pink flamingo
 **Settings:**
 - Model: Nano Banana Pro
 - Mode: Sequential
-- Prefix: `cute cartoon style illustration of `
+- Master Prompts: `cute cartoon style illustration of `
 - Suffix: `, kawaii style, pastel colors, white background`
+- Negative Prompts: (ว่าง)
 
 ---
 
@@ -88,14 +89,67 @@ a desert sunset
 **Settings:**
 - Model: Nano Banana Pro
 - Mode: Sequential
-- Prefix: (ว่าง)
+- Master Prompts: (ว่าง)
 - Suffix: `, oil painting style, artistic, masterpiece`
+- Negative Prompts: (ว่าง)
 
 **ทดลองเปลี่ยน Suffix:**
 - `, watercolor painting style`
 - `, digital art, vibrant colors`
 - `, pencil sketch, black and white`
 - `, anime style, Studio Ghibli inspired`
+
+---
+
+### 6. โหมด Reference Image (คงคนเดิม/สัตว์เดิม/สิ่งเดิม)
+
+**วัตถุประสงค์:** สร้างรูปใหม่ที่คงบุคคล/สัตว์/สิ่งของเดิมจากรูปอ้างอิง
+
+**ขั้นตอน:**
+1. เลือกแท็บ "Reference image"
+2. อัปโหลดรูปอ้างอิง (JPG, PNG, WebP สูงสุด 10MB)
+3. เลือกประเภท: **Person** / **Animal** / **Object** หรือกด "Auto-detect"
+4. ระบบจะโหลด preset Master/Negative ให้อัตโนมัติ (แก้ได้)
+5. ใส่ prompts แล้วกด Generate
+
+**ตัวอย่าง Person (คงคนเดิม):**
+
+รูปอ้างอิง: รูปบุคคล
+- Reference Type: Person
+- Master Prompts: `same person as reference, consistent face and identity, `
+- Negative Prompts: `duplicate faces, deformed, different person, different face`
+- Prompts:
+  ```
+  wearing a red hat, smiling
+  standing in an office, professional attire
+  sitting in a cafe, casual outfit
+  ```
+
+**ตัวอย่าง Animal (คงสัตว์เดิม):**
+
+รูปอ้างอิง: รูปสัตว์เลี้ยง
+- Reference Type: Animal
+- Master Prompts: `same creature as reference, consistent anatomy and features, `
+- Negative Prompts: `extra limbs, wrong proportions, different animal`
+- Prompts:
+  ```
+  running in a park, sunny day
+  sleeping on a couch
+  wearing a small hat, cute pose
+  ```
+
+**ตัวอย่าง Object (คงสินค้าเดิม):**
+
+รูปอ้างอิง: รูปสินค้า
+- Reference Type: Object
+- Master Prompts: `same object as reference, accurate form and details, `
+- Negative Prompts: `distorted, blurry, different object`
+- Prompts:
+  ```
+  on a white background, product shot
+  in a lifestyle setting, living room
+  with packaging, marketing style
+  ```
 
 ---
 
@@ -153,21 +207,22 @@ highly detailed, vibrant colors [Quality]
 
 ## 🔧 Advanced Techniques
 
-### 1. ใช้ Prefix/Suffix เพื่อความสม่ำเสมอ
+### 1. ใช้ Master/Negative Prompts เพื่อความสม่ำเสมอ
 
 แทนที่จะเขียนซ้ำๆ ในทุก prompt:
 
 ❌ **ไม่ดี:**
 ```
-professional photo of a cat, high quality, 4k
-professional photo of a dog, high quality, 4k
-professional photo of a bird, high quality, 4k
+professional photo of a cat, high quality, 4k, avoid blurry
+professional photo of a dog, high quality, 4k, avoid blurry
+professional photo of a bird, high quality, 4k, avoid blurry
 ```
 
 ✅ **ดี:**
 
-Prefix: `professional photo of `
+Master Prompts: `professional photo of `
 Suffix: `, high quality, 4k`
+Negative Prompts: `blurry, low quality, distorted`
 
 Prompts:
 ```
@@ -175,6 +230,8 @@ a cat
 a dog
 a bird
 ```
+
+ลำดับ prompt สุดท้าย: `[aspect] + [master] + [prompt] + [suffix] + ", avoid: " + [negative]`
 
 ### 2. สร้างรูปหลายเวอร์ชั่น
 
@@ -299,20 +356,21 @@ Settings: Nano Banana, Sequential
 ❌ 50 prompts + Parallel mode = Rate limit!
 ✅ 50 prompts + Sequential mode = ✅
 
-### 4. ลืมใช้ Prefix/Suffix
+### 4. ลืมใช้ Master/Negative Prompts
 
 ❌ เขียนซ้ำๆ ใน prompt
-✅ ใช้ Prefix/Suffix เพื่อความสะดวก
+✅ ใช้ Master Prompts และ Negative Prompts เพื่อความสะดวก
 
 ---
 
 ## 💡 Pro Tips
 
 1. **เก็บ prompts ที่ดีไว้:** สร้างไฟล์ .txt เก็บ prompts ที่ชอบ
-2. **ทดสอบก่อน:** ลอง generate 1-2 รูปก่อนทำ batch ใหญ่
-3. **ใช้ consistent style:** ใช้ prefix/suffix เพื่อให้รูปมีสไตล์เดียวกัน
-4. **Backup รูปสำคัญ:** Download รูปที่ชอบออกมาเก็บไว้
-5. **ทดลอง variations:** ลอง prompt แบบต่างๆ เพื่อหา result ที่ดีที่สุด
+2. **ใช้ Preset:** บันทึก Master/Negative Prompts ที่ใช้บ่อยเป็น Preset
+3. **ทดสอบก่อน:** ลอง generate 1-2 รูปก่อนทำ batch ใหญ่
+4. **ใช้ consistent style:** ใช้ Master Prompts และ Suffix เพื่อให้รูปมีสไตล์เดียวกัน
+5. **Reference mode:** เลือกรูปอ้างอิงที่ชัด พื้นหลังเรียบ เพื่อให้คงคน/สัตว์/สิ่งเดิมได้ดี
+6. **Backup รูปสำคัญ:** Download รูปที่ชอบออกมาเก็บไว้
 
 ---
 

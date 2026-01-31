@@ -47,6 +47,114 @@ class ImageGenerator:
         except Exception as e:
             raise ValueError(f"Failed to initialize Gemini API client: {str(e)}") from e
     
+    def analyze_reference_type(self, image_bytes: bytes, mime_type: str = "image/jpeg") -> str:
+        """
+        Analyze an image and return reference type: person, animal, or object.
+        Uses Gemini vision model for classification.
+        """
+        try:
+            model = genai.GenerativeModel("models/gemini-2.5-flash")
+            pil_image = Image.open(io.BytesIO(image_bytes))
+            response = model.generate_content([
+                pil_image,
+                "Is this image primarily of a person, animal, or object? Reply with exactly one word: person, animal, or object."
+            ])
+            text = (response.text or "").strip().lower()
+            if "person" in text:
+                return "person"
+            if "animal" in text:
+                return "animal"
+            if "object" in text:
+                return "object"
+            return "object"  # fallback
+        except Exception as e:
+            print(f"[ImageGen] analyze_reference_type error: {e}")
+            return "object"
+
+    def _get_reference_type_hint(self, reference_type: str) -> str:
+        """Get prompt hint based on reference type."""
+        hints = {
+            "person": "Keep exactly the same person and face as in the reference image. ",
+            "animal": "Keep exactly the same creature as in the reference image. ",
+            "object": "Keep exactly the same object as in the reference image. "
+        }
+        return hints.get(reference_type, "")
+
+    def generate_single_with_reference(
+        self,
+        prompt: str,
+        reference_image_bytes: bytes,
+        mime_type: str = "image/jpeg",
+        reference_type: str = "",
+        model: str = MODEL_NANO_BANANA,
+        filename_prefix: str = "img",
+        aspect_ratio: str = "1:1",
+        master_prompts: str = "",
+        suffix: str = "",
+        negative_prompts: str = ""
+    ) -> Dict:
+        """
+        Generate image from text + reference image (image-to-image).
+        Sends [image, prompt] to Gemini.
+        """
+        result = {
+            "status": "pending",
+            "prompt": prompt,
+            "filename": None,
+            "error": None,
+            "model": model,
+            "timestamp": datetime.now().isoformat()
+        }
+        try:
+            generation_model = genai.GenerativeModel(model_name=model)
+            pil_image = Image.open(io.BytesIO(reference_image_bytes))
+
+            # Build full prompt: hint + aspect + master + prompt + suffix + negative
+            hint = self._get_reference_type_hint(reference_type) if reference_type else ""
+            aspect_prefix = ""
+            if aspect_ratio and aspect_ratio != "1:1":
+                aspect_map = {
+                    "21:9": "Create an image in 21:9 ultra-wide cinematic aspect ratio. ",
+                    "16:9": "Create an image in 16:9 widescreen landscape aspect ratio. ",
+                    "4:3": "Create an image in 4:3 standard landscape aspect ratio. ",
+                    "3:2": "Create an image in 3:2 classic photo landscape aspect ratio. ",
+                    "9:16": "Create an image in 9:16 vertical portrait aspect ratio. ",
+                    "3:4": "Create an image in 3:4 portrait aspect ratio. ",
+                    "2:3": "Create an image in 2:3 classic portrait aspect ratio. ",
+                    "5:4": "Create an image in 5:4 almost square landscape aspect ratio. ",
+                    "4:5": "Create an image in 4:5 almost square portrait aspect ratio. "
+                }
+                aspect_prefix = aspect_map.get(aspect_ratio, f"Create an image in {aspect_ratio} aspect ratio. ")
+
+            full_prompt = f"{hint}{aspect_prefix}{master_prompts}{prompt}{suffix}"
+            if negative_prompts:
+                full_prompt += f", avoid: {negative_prompts}"
+            full_prompt = full_prompt.strip()
+
+            # Gemini accepts [image, text] for image editing
+            response = generation_model.generate_content([pil_image, full_prompt])
+
+            if response.parts:
+                for part in response.parts:
+                    if hasattr(part, 'inline_data') and part.inline_data:
+                        image_bytes = part.inline_data.data
+                        pil_out = Image.open(io.BytesIO(image_bytes))
+                        ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+                        filename = f"{filename_prefix}_{ts}.png"
+                        filepath = os.path.join(self.output_dir, filename)
+                        pil_out.save(filepath, "PNG")
+                        result["status"] = "completed"
+                        result["filename"] = filename
+                        result["filepath"] = filepath
+                        return result
+
+            result["status"] = "failed"
+            result["error"] = "No image data in response"
+        except Exception as e:
+            result["status"] = "failed"
+            result["error"] = str(e)
+        return result
+
     def generate_single(
         self, 
         prompt: str, 
@@ -129,7 +237,189 @@ class ImageGenerator:
             result["error"] = str(e)
         
         return result
-    
+
+    def generate_batch_with_reference_sequential(
+        self,
+        prompts: List[str],
+        reference_image_bytes: bytes,
+        mime_type: str = "image/jpeg",
+        reference_type: str = "",
+        model: str = MODEL_NANO_BANANA,
+        progress_callback: Optional[Callable] = None,
+        master_prompts: str = "",
+        suffix: str = "",
+        negative_prompts: str = "",
+        aspect_ratio: str = "1:1",
+        cancel_check: Optional[Callable[[], bool]] = None,
+        timeout_seconds: Optional[int] = 120
+    ) -> List[Dict]:
+        """Generate images with reference, sequential."""
+        results = []
+        total = len(prompts)
+        timeout_sec = timeout_seconds or 120
+
+        for idx, prompt in enumerate(prompts, 1):
+            if cancel_check and cancel_check():
+                break
+
+            executor = ThreadPoolExecutor(max_workers=1)
+            future = executor.submit(
+                self.generate_single_with_reference,
+                prompt=prompt,
+                reference_image_bytes=reference_image_bytes,
+                mime_type=mime_type,
+                reference_type=reference_type,
+                model=model,
+                filename_prefix=f"batch_{idx}",
+                aspect_ratio=aspect_ratio,
+                master_prompts=master_prompts,
+                suffix=suffix,
+                negative_prompts=negative_prompts
+            )
+            result = None
+            chunk_sec = 3
+            waited = 0
+            try:
+                while waited < timeout_sec:
+                    try:
+                        result = future.result(timeout=chunk_sec)
+                        break
+                    except FuturesTimeoutError:
+                        waited += chunk_sec
+                        if cancel_check and cancel_check():
+                            hint = self._get_reference_type_hint(reference_type) if reference_type else ""
+                            full_prompt = f"{hint}{master_prompts}{prompt}{suffix}"
+                            if negative_prompts:
+                                full_prompt += f", avoid: {negative_prompts}"
+                            result = {
+                                "status": "cancelled",
+                                "prompt": full_prompt.strip(),
+                                "filename": None,
+                                "error": "Cancelled",
+                                "model": model,
+                                "timestamp": datetime.now().isoformat()
+                            }
+                            break
+                if result is None:
+                    full_prompt = f"{master_prompts}{prompt}{suffix}"
+                    if negative_prompts:
+                        full_prompt += f", avoid: {negative_prompts}"
+                    result = {
+                        "status": "failed",
+                        "prompt": full_prompt.strip(),
+                        "filename": None,
+                        "error": f"Timeout after {timeout_sec} seconds",
+                        "model": model,
+                        "timestamp": datetime.now().isoformat()
+                    }
+            finally:
+                executor.shutdown(wait=False)
+
+            results.append(result)
+            if progress_callback:
+                progress_callback(len(results), total, result)
+            if cancel_check and cancel_check():
+                break
+            if idx < total:
+                time.sleep(0.5)
+
+        return results
+
+    def generate_batch_with_reference_parallel(
+        self,
+        prompts: List[str],
+        reference_image_bytes: bytes,
+        mime_type: str = "image/jpeg",
+        reference_type: str = "",
+        model: str = MODEL_NANO_BANANA,
+        max_workers: int = 3,
+        progress_callback: Optional[Callable] = None,
+        master_prompts: str = "",
+        suffix: str = "",
+        negative_prompts: str = "",
+        aspect_ratio: str = "1:1",
+        cancel_check: Optional[Callable[[], bool]] = None,
+        timeout_seconds: Optional[int] = 120
+    ) -> List[Dict]:
+        """Generate images with reference, parallel."""
+        results = [None] * len(prompts)
+        total = len(prompts)
+        completed = 0
+        timeout_sec = timeout_seconds or 120
+
+        def gen_with_idx(idx: int, prompt: str):
+            if cancel_check and cancel_check():
+                return idx, {"status": "cancelled", "prompt": "", "filename": None, "error": "Cancelled", "model": model, "timestamp": datetime.now().isoformat()}
+            with ThreadPoolExecutor(max_workers=1) as ex:
+                fut = ex.submit(
+                    self.generate_single_with_reference,
+                    prompt=prompt,
+                    reference_image_bytes=reference_image_bytes,
+                    mime_type=mime_type,
+                    reference_type=reference_type,
+                    model=model,
+                    filename_prefix=f"batch_{idx+1}",
+                    aspect_ratio=aspect_ratio,
+                    master_prompts=master_prompts,
+                    suffix=suffix,
+                    negative_prompts=negative_prompts
+                )
+                try:
+                    return idx, fut.result(timeout=timeout_sec)
+                except FuturesTimeoutError:
+                    full_prompt = f"{master_prompts}{prompt}{suffix}"
+                    if negative_prompts:
+                        full_prompt += f", avoid: {negative_prompts}"
+                    return idx, {
+                        "status": "failed",
+                        "prompt": full_prompt.strip(),
+                        "filename": None,
+                        "error": f"Timeout after {timeout_sec}s",
+                        "model": model,
+                        "timestamp": datetime.now().isoformat()
+                    }
+
+        executor = ThreadPoolExecutor(max_workers=max_workers)
+        try:
+            future_to_idx = {
+                executor.submit(gen_with_idx, idx, prompt): idx
+                for idx, prompt in enumerate(prompts)
+            }
+            for future in as_completed(future_to_idx, timeout=2):
+                if cancel_check and cancel_check():
+                    break
+                idx = future_to_idx[future]
+                try:
+                    i, res = future.result(timeout=1)
+                except FuturesTimeoutError:
+                    continue
+                results[idx] = res
+                completed += 1
+                if progress_callback:
+                    progress_callback(completed, total, res)
+        finally:
+            executor.shutdown(wait=False)
+
+        if cancel_check and cancel_check():
+            for i in range(len(results)):
+                if results[i] is None:
+                    full_prompt = f"{master_prompts}{prompts[i]}{suffix}"
+                    if negative_prompts:
+                        full_prompt += f", avoid: {negative_prompts}"
+                    results[i] = {
+                        "status": "cancelled",
+                        "prompt": full_prompt.strip(),
+                        "filename": None,
+                        "error": "Cancelled",
+                        "model": model,
+                        "timestamp": datetime.now().isoformat()
+                    }
+                    completed += 1
+                    if progress_callback:
+                        progress_callback(completed, total, results[i])
+
+        return results
+
     def generate_batch_sequential(
         self,
         prompts: List[str],

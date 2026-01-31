@@ -100,6 +100,29 @@
         </div>
     </div>
 
+    <!-- Generic Confirm Modal (แทน confirm() ให้ตรงธีม) -->
+    <div class="modal fade" id="confirmModal" tabindex="-1" aria-labelledby="confirmModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content confirm-modal-content">
+                <div class="modal-header border-0 pb-0">
+                    <h5 class="modal-title d-flex align-items-center gap-2" id="confirmModalLabel">
+                        <i class="bi bi-question-circle text-primary confirm-modal-icon"></i>
+                        <span id="confirmModalTitle">Confirm</span>
+                    </h5>
+                </div>
+                <div class="modal-body pt-2">
+                    <div id="confirmModalBody" class="confirm-modal-body text-muted"></div>
+                </div>
+                <div class="modal-footer border-0 pt-0 d-flex justify-content-end gap-2">
+                    <button type="button" class="btn btn-outline-secondary" id="confirmModalCancelBtn">Cancel</button>
+                    <button type="button" class="btn btn-primary px-4" id="confirmModalOkBtn">
+                        <i class="bi bi-check-lg me-1"></i> <span id="confirmModalOkText">OK</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Delete Preset Confirm Modal -->
     <div class="modal fade" id="deletePresetModal" tabindex="-1" aria-labelledby="deletePresetModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
@@ -122,11 +145,85 @@
         </div>
     </div>
 
+    <!-- History Preview Modal (ดูตัวอย่างรูปและรายละเอียดก่อน Rerun) -->
+    <div class="modal fade" id="historyPreviewModal" tabindex="-1" aria-labelledby="historyPreviewModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-xl modal-dialog-scrollable">
+            <div class="modal-content image-preview-modal-content">
+                <div class="modal-header image-preview-header">
+                    <h5 class="modal-title d-flex align-items-center gap-2" id="historyPreviewModalLabel">
+                        <i class="bi bi-images text-primary"></i> Job Preview
+                    </h5>
+                    <button type="button" class="btn-close btn-close-preview" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="history-preview-details mb-4">
+                        <div class="row g-2 small text-muted mb-3">
+                            <div class="col-auto"><span class="fw-semibold">Model:</span> <span id="historyPreviewModel">-</span></div>
+                            <div class="col-auto"><span class="fw-semibold">Mode:</span> <span id="historyPreviewMode">-</span></div>
+                            <div class="col-auto"><span class="fw-semibold">Aspect:</span> <span id="historyPreviewAspect">-</span></div>
+                        </div>
+                        <div class="mb-2"><span class="fw-semibold small">Prompts:</span></div>
+                        <div id="historyPreviewPrompts" class="history-preview-prompts mb-3"></div>
+                        <div class="mb-2"><span class="fw-semibold small">Master / Negative:</span></div>
+                        <div id="historyPreviewMasterNegative" class="text-muted small mb-3"></div>
+                    </div>
+                    <div class="history-preview-images mb-4">
+                        <div class="mb-2"><span class="fw-semibold small">Generated Images:</span></div>
+                        <div id="historyPreviewImages" class="row g-3"></div>
+                        <div id="historyPreviewNoImages" class="text-muted small py-3" style="display: none;">No images available (may have been cleaned up)</div>
+                    </div>
+                    <div class="d-flex justify-content-end gap-2">
+                        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+                        <button type="button" class="btn btn-primary" id="historyPreviewRerunBtn">
+                            <i class="bi bi-arrow-clockwise me-1"></i> Rerun
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Image Preview Modal -->
+    <div class="modal fade" id="imagePreviewModal" tabindex="-1" aria-labelledby="imagePreviewModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-xl modal-dialog-scrollable">
+            <div class="modal-content image-preview-modal-content">
+                <div class="modal-header image-preview-header">
+                    <h5 class="modal-title d-flex align-items-center gap-2" id="imagePreviewModalLabel">
+                        <i class="bi bi-image-fill text-primary"></i> Image Preview
+                    </h5>
+                    <div class="d-flex align-items-center gap-2">
+                        <a id="imagePreviewDownload" href="" download="" class="btn btn-primary btn-sm">
+                            <i class="bi bi-download me-1"></i> Download
+                        </a>
+                        <button type="button" class="btn-close btn-close-preview" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                </div>
+                <div class="modal-body image-preview-body">
+                    <img id="imagePreviewImg" src="" alt="Preview" class="image-preview-img">
+                    <div class="image-preview-prompt-block">
+                        <div class="image-preview-prompt-label">
+                            <i class="bi bi-chat-quote me-1"></i> Prompt
+                        </div>
+                        <div id="imagePreviewPrompt" class="image-preview-prompt-text"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="container py-4">
-        <!-- Header with API Key button -->
+        <!-- Header with Theme toggle + API Key button -->
         <header class="position-relative text-center mb-4" id="mainHeader">
             <div id="apiKeySettings" class="api-key-settings">
-                <button class="btn btn-sm btn-outline-secondary" id="changeApiKeyBtn" title="Set or change API Key">
+                <div class="theme-toggle">
+                    <button type="button" class="theme-toggle-btn active" id="themeLightBtn" title="Light mode">
+                        <i class="bi bi-sun"></i> Light
+                    </button>
+                    <button type="button" class="theme-toggle-btn" id="themeDarkBtn" title="Dark mode">
+                        <i class="bi bi-moon-stars"></i> Dark
+                    </button>
+                </div>
+                <button type="button" class="api-key-btn" id="changeApiKeyBtn" title="Set or change API Key">
                     <i class="bi bi-key"></i> <span class="btn-api-key-text">Set API Key</span>
                 </button>
             </div>
@@ -134,12 +231,26 @@
             <p class="lead text-muted">Generate images with Google Gemini (Nano Banana)</p>
         </header>
 
+        <!-- Mode Tabs -->
+        <div class="mode-tabs mb-3">
+            <div class="mode-tabs-inner">
+                <button type="button" class="mode-tab-btn active" id="modeTextOnlyBtn" data-mode="text">
+                    <i class="bi bi-type"></i> Text only
+                </button>
+                <button type="button" class="mode-tab-btn" id="modeReferenceBtn" data-mode="reference">
+                    <i class="bi bi-image"></i> Reference image
+                </button>
+            </div>
+        </div>
+
         <!-- Main Content -->
         <div class="row g-4">
             <!-- Input Section -->
             <div class="col-12">
                 <div class="card shadow-sm main-form-card">
                     <div class="card-body">
+                        <!-- Text-only mode (default visible) -->
+                        <div id="modeTextOnly" class="mode-content">
                         <div class="d-flex justify-content-between align-items-center mb-3">
                             <h5 class="card-title mb-0">📝 Prompts</h5>
                             <span class="badge bg-secondary">
@@ -154,8 +265,70 @@
                         <button id="addPromptBtn" class="btn btn-primary" style="border-radius: 20px; padding: 8px 20px;">
                             <i class="bi bi-plus-circle"></i> Add Prompt
                         </button>
+                        </div>
 
-                        <!-- Settings -->
+                        <!-- Reference mode (hidden by default) -->
+                        <div id="modeReference" class="mode-content" style="display: none;">
+                            <div class="reference-upload-section mb-4">
+                                <label class="form-label text-muted small fw-semibold">
+                                    <i class="bi bi-upload me-1"></i> Reference image
+                                </label>
+                                <div class="reference-upload-zone" id="referenceUploadZone">
+                                    <input type="file" id="referenceFileInput" accept="image/jpeg,image/png,image/webp" style="display: none;">
+                                    <div class="reference-upload-placeholder" id="referenceUploadPlaceholder">
+                                        <i class="bi bi-cloud-arrow-up fs-1 text-muted mb-2"></i>
+                                        <p class="mb-0 small text-muted">Drop image here or click to select</p>
+                                        <p class="mb-0 small text-muted mt-1">JPG, PNG, WebP (max 10MB)</p>
+                                    </div>
+                                    <div class="reference-preview-block" id="referencePreviewBlock" style="display: none;">
+                                        <img id="referencePreviewImg" src="" alt="Reference" class="reference-preview-img">
+                                        <button type="button" class="btn btn-sm btn-outline-danger reference-remove-btn" id="referenceRemoveBtn" title="Remove image">
+                                            <i class="bi bi-x-lg"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="reference-type-row mt-3">
+                                    <label class="form-label text-muted small">
+                                        <i class="bi bi-tag me-1"></i> Reference type
+                                    </label>
+                                    <div class="d-flex align-items-center gap-2 flex-wrap">
+                                        <div class="dropdown custom-dropdown">
+                                            <button class="custom-dropdown-btn" type="button" data-bs-toggle="dropdown" id="referenceTypeDropdownBtn">
+                                                <span class="custom-dropdown-value">-- Select type --</span>
+                                                <i class="bi bi-chevron-down"></i>
+                                            </button>
+                                            <ul class="dropdown-menu custom-dropdown-menu" id="referenceTypeDropdownMenu">
+                                                <li><a class="dropdown-item" href="#" data-value="person"><i class="bi bi-person me-2"></i> Person</a></li>
+                                                <li><a class="dropdown-item" href="#" data-value="animal"><i class="bi bi-heart me-2"></i> Animal</a></li>
+                                                <li><a class="dropdown-item" href="#" data-value="object"><i class="bi bi-box me-2"></i> Object</a></li>
+                                            </ul>
+                                            <select class="d-none" id="referenceTypeSelect">
+                                                <option value="">-- Select type --</option>
+                                                <option value="person">Person</option>
+                                                <option value="animal">Animal</option>
+                                                <option value="object">Object</option>
+                                            </select>
+                                        </div>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary" id="analyzeRefTypeBtn" title="Auto-detect type from image">
+                                            <i class="bi bi-magic"></i> Auto-detect
+                                        </button>
+                                    </div>
+                                    <div class="form-text small">Type affects prompts and presets. Auto-detect analyzes the image.</div>
+                                </div>
+                            </div>
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <h5 class="card-title mb-0">📝 Prompts</h5>
+                                <span class="badge bg-secondary">
+                                    <span id="promptCountRef">0</span> prompts
+                                </span>
+                            </div>
+                            <div class="mb-3" id="promptsContainerRef"></div>
+                            <button id="addPromptBtnRef" class="btn btn-primary" style="border-radius: 20px; padding: 8px 20px;">
+                                <i class="bi bi-plus-circle"></i> Add Prompt
+                            </button>
+                        </div>
+
+                        <!-- Settings (shared) -->
                         <div class="mt-4">
                             <!-- Basic Settings Group -->
                             <div class="settings-group-box settings-group-basic">
@@ -359,8 +532,12 @@
                             </button>
                         </div>
 
-                        <div class="progress-list-label small text-muted text-uppercase fw-semibold mb-2">Prompt status</div>
-                        <div id="promptList"></div>
+                        <div class="prompt-status-block">
+                            <div class="progress-list-label small text-uppercase fw-semibold mb-3">
+                                <i class="bi bi-list-check me-1"></i> Prompt status
+                            </div>
+                            <div id="promptList" class="prompt-list-inner"></div>
+                        </div>
                     </div>
                 </div>
             </div>

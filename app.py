@@ -82,6 +82,7 @@ def add_to_history(job):
         history = load_history()
         
         # สร้าง history entry (เก็บเฉพาะข้อมูลที่จำเป็น)
+        completed_results = [r for r in job.get('results', []) if r.get('status') == 'completed' and r.get('filename')]
         history_entry = {
             'id': job['id'],
             'created_at': job['created_at'],
@@ -97,7 +98,10 @@ def add_to_history(job):
             'suffix': job.get('suffix', ''),
             'negative_prompts': job.get('negative_prompts', ''),
             'aspect_ratio': job.get('aspect_ratio', '1:1'),
-            'success_count': len([r for r in job.get('results', []) if r['status'] == 'completed'])
+            'success_count': len(completed_results),
+            'has_reference': job.get('has_reference', False),
+            'reference_type': job.get('reference_type', ''),
+            'results': [{'filename': r['filename'], 'prompt': r.get('prompt', '')} for r in completed_results]
         }
         
         # เพิ่มเข้าด้านหน้า (ใหม่สุด)
@@ -109,31 +113,36 @@ def add_to_history(job):
         print(f"Error adding to history: {e}")
 
 
-def create_job(prompts: list, model: str, mode: str, master_prompts: str = "", suffix: str = "", negative_prompts: str = "", aspect_ratio: str = "1:1") -> str:
+def create_job(prompts: list, model: str, mode: str, master_prompts: str = "", suffix: str = "", negative_prompts: str = "", aspect_ratio: str = "1:1", has_reference: bool = False, reference_type: str = "") -> str:
     """สร้าง job ใหม่และ return job_id"""
     job_id = str(uuid.uuid4())
-    
+
+    job_data = {
+        'id': job_id,
+        'status': 'pending',
+        'prompts': prompts,
+        'model': model,
+        'mode': mode,
+        'master_prompts': master_prompts,
+        'suffix': suffix,
+        'negative_prompts': negative_prompts,
+        'aspect_ratio': aspect_ratio,
+        'total': len(prompts),
+        'completed': 0,
+        'failed': 0,
+        'results': [],
+        'cancel_requested': False,
+        'created_at': datetime.now().isoformat(),
+        'started_at': None,
+        'finished_at': None
+    }
+    if has_reference:
+        job_data['has_reference'] = True
+        job_data['reference_type'] = reference_type
+
     with jobs_lock:
-        jobs[job_id] = {
-            'id': job_id,
-            'status': 'pending',
-            'prompts': prompts,
-            'model': model,
-            'mode': mode,
-            'master_prompts': master_prompts,
-            'suffix': suffix,
-            'negative_prompts': negative_prompts,
-            'aspect_ratio': aspect_ratio,
-            'total': len(prompts),
-            'completed': 0,
-            'failed': 0,
-            'results': [],
-            'cancel_requested': False,
-            'created_at': datetime.now().isoformat(),
-            'started_at': None,
-            'finished_at': None
-        }
-    
+        jobs[job_id] = job_data
+
     return job_id
 
 
@@ -265,12 +274,163 @@ def process_generation(job_id: str, api_key: str):
                 jobs[job_id]['finished_at'] = datetime.now().isoformat()
 
 
+def process_generation_with_reference(job_id: str, api_key: str, reference_image_bytes: bytes, mime_type: str = "image/jpeg"):
+    """Background task สำหรับ generate images ด้วย reference image"""
+    print(f"[Job {job_id[:8]}] Starting generation with reference...")
+    with jobs_lock:
+        if job_id not in jobs:
+            print(f"[Job {job_id[:8]}] Error: Job not found")
+            return
+
+        job = jobs[job_id]
+        job['status'] = 'processing'
+        job['started_at'] = datetime.now().isoformat()
+
+    try:
+        image_generator = ImageGenerator(api_key=api_key, output_dir=STATIC_FOLDER)
+        prompts = job['prompts']
+        model = job['model']
+        mode = job['mode']
+        master_prompts = job.get('master_prompts', '')
+        suffix = job.get('suffix', '')
+        negative_prompts = job.get('negative_prompts', '')
+        aspect_ratio = job.get('aspect_ratio', '1:1')
+        reference_type = job.get('reference_type', '')
+
+        def cancel_check():
+            with jobs_lock:
+                return jobs.get(job_id, {}).get('cancel_requested', False)
+
+        def progress_callback(current, total, result):
+            if result.get('status') == 'failed':
+                print(f"[Job {job_id[:8]}] Image {current}/{total} FAILED: {result.get('error', 'Unknown error')}")
+            else:
+                print(f"[Job {job_id[:8]}] Image {current}/{total} completed")
+            update_job_progress(job_id, current, total, result)
+
+        timeout_per_image = 120
+
+        if mode == 'sequential':
+            image_generator.generate_batch_with_reference_sequential(
+                prompts=prompts,
+                reference_image_bytes=reference_image_bytes,
+                mime_type=mime_type,
+                reference_type=reference_type,
+                model=model,
+                progress_callback=progress_callback,
+                master_prompts=master_prompts,
+                suffix=suffix,
+                negative_prompts=negative_prompts,
+                aspect_ratio=aspect_ratio,
+                cancel_check=cancel_check,
+                timeout_seconds=timeout_per_image
+            )
+        else:
+            image_generator.generate_batch_with_reference_parallel(
+                prompts=prompts,
+                reference_image_bytes=reference_image_bytes,
+                mime_type=mime_type,
+                reference_type=reference_type,
+                model=model,
+                max_workers=MAX_WORKERS,
+                progress_callback=progress_callback,
+                master_prompts=master_prompts,
+                suffix=suffix,
+                negative_prompts=negative_prompts,
+                aspect_ratio=aspect_ratio,
+                cancel_check=cancel_check,
+                timeout_seconds=timeout_per_image
+            )
+
+        with jobs_lock:
+            if job_id in jobs:
+                job = jobs[job_id]
+                if job.get('cancel_requested'):
+                    job['status'] = 'cancelled'
+                    for i in range(len(job['results']), len(prompts)):
+                        full_prompt = f"{master_prompts}{prompts[i]}{suffix}"
+                        if negative_prompts:
+                            full_prompt += f", avoid: {negative_prompts}"
+                        job['results'].append({
+                            'status': 'cancelled',
+                            'prompt': full_prompt.strip(),
+                            'filename': None,
+                            'error': 'Cancelled',
+                            'model': job.get('model', ''),
+                            'timestamp': datetime.now().isoformat()
+                        })
+                    job['completed'] = len(prompts)
+                else:
+                    job['status'] = 'completed'
+                job['finished_at'] = datetime.now().isoformat()
+                add_to_history(job)
+
+    except Exception as e:
+        print(f"[Job {job_id[:8]}] CRITICAL ERROR: {str(e)}")
+        import traceback
+        print(traceback.format_exc())
+        with jobs_lock:
+            if job_id in jobs:
+                jobs[job_id]['status'] = 'error'
+                jobs[job_id]['error'] = str(e)
+                jobs[job_id]['finished_at'] = datetime.now().isoformat()
+
+
 # ===== Routes =====
 
 @app.route('/')
 def index():
     """หน้าหลัก"""
     return render_template('index.html')
+
+
+@app.route('/api/analyze-reference-type', methods=['POST'])
+def analyze_reference_type():
+    """
+    Analyze uploaded image and return reference type (person/animal/object).
+    Request JSON: { "api_key": "...", "reference_image": "data:image/png;base64,..." }
+    Response: { "success": true, "type": "person" | "animal" | "object" }
+    """
+    try:
+        data = request.get_json()
+        api_key = data.get('api_key', '').strip()
+        if not api_key:
+            return jsonify({'success': False, 'error': 'API key is required'}), 400
+
+        ref_data = data.get('reference_image', '')
+        if not ref_data or not ref_data.startswith('data:'):
+            return jsonify({'success': False, 'error': 'Invalid reference image (expect data:image/...;base64,...)'}), 400
+
+        parts = ref_data.split(',', 1)
+        if len(parts) != 2:
+            return jsonify({'success': False, 'error': 'Invalid base64 image data'}), 400
+
+        import base64
+        mime_part = parts[0]
+        if 'image/' in mime_part:
+            mime_type = 'image/jpeg'
+            if 'png' in mime_part:
+                mime_type = 'image/png'
+            elif 'webp' in mime_part:
+                mime_type = 'image/webp'
+        else:
+            mime_type = 'image/jpeg'
+
+        try:
+            image_bytes = base64.b64decode(parts[1])
+        except Exception as e:
+            return jsonify({'success': False, 'error': f'Invalid base64: {str(e)}'}), 400
+
+        if len(image_bytes) > 10 * 1024 * 1024:
+            return jsonify({'success': False, 'error': 'Image too large (max 10MB)'}), 400
+
+        generator = ImageGenerator(api_key=api_key, output_dir=STATIC_FOLDER)
+        ref_type = generator.analyze_reference_type(image_bytes, mime_type)
+
+        return jsonify({'success': True, 'type': ref_type})
+    except Exception as e:
+        print(f"[analyze-reference-type] Error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/api/validate-key', methods=['POST'])
@@ -437,6 +597,96 @@ def generate():
             'success': False,
             'error': str(e)
         }), 500
+
+
+@app.route('/api/generate-with-reference', methods=['POST'])
+def generate_with_reference():
+    """
+    API endpoint สำหรับ generate images ด้วย reference image
+    Request JSON: api_key, reference_image (data:image/...;base64,...), reference_type (person|animal|object),
+                 prompts, model, mode, master_prompts, suffix, negative_prompts, aspect_ratio
+    """
+    try:
+        data = request.get_json()
+        api_key = data.get('api_key', '').strip()
+        if not api_key:
+            return jsonify({'success': False, 'error': 'API key is required'}), 400
+
+        ref_data = data.get('reference_image', '')
+        if not ref_data or not ref_data.startswith('data:'):
+            return jsonify({'success': False, 'error': 'Reference image is required (data:image/...;base64,...)'}), 400
+
+        if not data or 'prompts' not in data:
+            return jsonify({'success': False, 'error': 'Missing prompts in request'}), 400
+
+        prompts_raw = data['prompts']
+        if isinstance(prompts_raw, str):
+            prompts = [p.strip() for p in prompts_raw.split('\n') if p.strip()]
+        elif isinstance(prompts_raw, list):
+            prompts = [p.strip() for p in prompts_raw if p.strip()]
+        else:
+            return jsonify({'success': False, 'error': 'Invalid prompts format'}), 400
+
+        if not prompts:
+            return jsonify({'success': False, 'error': 'No valid prompts provided'}), 400
+
+        parts = ref_data.split(',', 1)
+        if len(parts) != 2:
+            return jsonify({'success': False, 'error': 'Invalid base64 image data'}), 400
+
+        import base64
+        mime_part = parts[0]
+        mime_type = 'image/jpeg'
+        if 'png' in mime_part:
+            mime_type = 'image/png'
+        elif 'webp' in mime_part:
+            mime_type = 'image/webp'
+
+        try:
+            reference_image_bytes = base64.b64decode(parts[1])
+        except Exception as e:
+            return jsonify({'success': False, 'error': f'Invalid base64: {str(e)}'}), 400
+
+        if len(reference_image_bytes) > 10 * 1024 * 1024:
+            return jsonify({'success': False, 'error': 'Image too large (max 10MB)'}), 400
+
+        model = data.get('model', ImageGenerator.MODEL_NANO_BANANA)
+        mode = data.get('mode', 'sequential')
+        master_prompts = data.get('master_prompts', '')
+        suffix = data.get('suffix', '')
+        negative_prompts = data.get('negative_prompts', '')
+        aspect_ratio = data.get('aspect_ratio', '1:1')
+        reference_type = (data.get('reference_type', '') or '').strip().lower()
+        if reference_type not in ('person', 'animal', 'object'):
+            reference_type = ''
+
+        if model in ["gemini-2.5-flash-image", "gemini-3-pro-image-preview"]:
+            model = f"models/{model}"
+        valid_models = [ImageGenerator.MODEL_NANO_BANANA, ImageGenerator.MODEL_NANO_BANANA_PRO,
+                       "models/gemini-2.5-flash-image", "models/gemini-3-pro-image-preview"]
+        if model not in valid_models:
+            model = ImageGenerator.MODEL_NANO_BANANA
+        if mode not in ['sequential', 'parallel']:
+            mode = 'sequential'
+
+        job_id = create_job(prompts, model, mode, master_prompts, suffix, negative_prompts, aspect_ratio,
+                            has_reference=True, reference_type=reference_type)
+
+        thread = threading.Thread(
+            target=process_generation_with_reference,
+            args=(job_id, api_key, reference_image_bytes, mime_type)
+        )
+        thread.daemon = True
+        thread.start()
+
+        return jsonify({
+            'success': True,
+            'job_id': job_id,
+            'message': f'Started generating {len(prompts)} images with reference',
+            'total': len(prompts)
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/api/cancel/<job_id>', methods=['POST'])

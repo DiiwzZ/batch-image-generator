@@ -7,10 +7,12 @@
 let currentJobId = null;
 let statusCheckInterval = null;
 let promptCounter = 0;
+let promptCounterRef = 0;  // แยก counter สำหรับ Reference mode
 
 // ===== API Key Management =====
 const API_KEY_STORAGE_KEY = 'gemini_api_key';
 const PRESETS_STORAGE_KEY = 'gemini_prompts_presets';
+const THEME_STORAGE_KEY = 'gemini_theme';
 
 // ===== DOM Elements =====
 // API Key Modal Elements
@@ -21,6 +23,8 @@ const testAndSaveKeyBtn = document.getElementById('testAndSaveKeyBtn');
 const apiKeyStatus = document.getElementById('apiKeyStatus');
 const changeApiKeyBtn = document.getElementById('changeApiKeyBtn');
 const apiKeySettings = document.getElementById('apiKeySettings');
+const themeLightBtn = document.getElementById('themeLightBtn');
+const themeDarkBtn = document.getElementById('themeDarkBtn');
 
 // Main Elements
 const promptsContainer = document.getElementById('promptsContainer');
@@ -73,6 +77,35 @@ const historyEmpty = document.getElementById('historyEmpty');
 const refreshHistoryBtn = document.getElementById('refreshHistoryBtn');
 const deleteAllHistoryBtn = document.getElementById('deleteAllHistoryBtn');
 
+// Mode & Reference Elements
+const modeTextOnlyBtn = document.getElementById('modeTextOnlyBtn');
+const modeReferenceBtn = document.getElementById('modeReferenceBtn');
+const modeTextOnly = document.getElementById('modeTextOnly');
+const modeReference = document.getElementById('modeReference');
+const referenceUploadZone = document.getElementById('referenceUploadZone');
+const referenceFileInput = document.getElementById('referenceFileInput');
+const referenceUploadPlaceholder = document.getElementById('referenceUploadPlaceholder');
+const referencePreviewBlock = document.getElementById('referencePreviewBlock');
+const referencePreviewImg = document.getElementById('referencePreviewImg');
+const referenceRemoveBtn = document.getElementById('referenceRemoveBtn');
+const referenceTypeSelect = document.getElementById('referenceTypeSelect');
+const referenceTypeDropdownBtn = document.getElementById('referenceTypeDropdownBtn');
+const referenceTypeDropdownMenu = document.getElementById('referenceTypeDropdownMenu');
+const analyzeRefTypeBtn = document.getElementById('analyzeRefTypeBtn');
+const promptsContainerRef = document.getElementById('promptsContainerRef');
+const addPromptBtnRef = document.getElementById('addPromptBtnRef');
+const promptCountRef = document.getElementById('promptCountRef');
+
+// Reference type presets: { master, negative }
+const REFERENCE_TYPE_PRESETS = {
+    person: { master: 'same person as reference, consistent face and identity, ', negative: 'duplicate faces, deformed, extra limbs, wrong proportions, different person, different face' },
+    animal: { master: 'same creature as reference, consistent anatomy and features, ', negative: 'extra limbs, wrong proportions, distorted features, different animal' },
+    object: { master: 'same object as reference, accurate form and details, ', negative: 'distorted, blurry, wrong proportions, different object' }
+};
+
+// Store reference image data (base64 data URL)
+let referenceImageData = null;
+
 // Cleanup Section Elements
 const cleanupSection = document.getElementById('cleanupSection');
 const cleanupTotalFiles = document.getElementById('cleanupTotalFiles');
@@ -104,6 +137,73 @@ function saveApiKey(apiKey) {
  */
 function clearApiKey() {
     localStorage.removeItem(API_KEY_STORAGE_KEY);
+}
+
+// ===== Theme (Light/Dark) =====
+function applyTheme(theme) {
+    const isDark = theme === 'dark';
+    document.body.setAttribute('data-theme', isDark ? 'dark' : '');
+    if (themeLightBtn) {
+        themeLightBtn.classList.toggle('active', !isDark);
+    }
+    if (themeDarkBtn) {
+        themeDarkBtn.classList.toggle('active', isDark);
+    }
+    localStorage.setItem(THEME_STORAGE_KEY, theme);
+}
+
+function initTheme() {
+    const saved = localStorage.getItem(THEME_STORAGE_KEY);
+    const theme = (saved === 'dark' || saved === 'light') ? saved : 'light';
+    applyTheme(theme);
+}
+
+// ===== Mode (Text only / Reference image) =====
+function getCurrentMode() {
+    return modeTextOnlyBtn?.classList.contains('active') ? 'text' : 'reference';
+}
+
+function switchMode(mode) {
+    if (!modeTextOnly || !modeReference) return;
+    if (mode === 'text') {
+        modeTextOnly.style.display = 'block';
+        modeReference.style.display = 'none';
+        modeTextOnlyBtn?.classList.add('active');
+        modeReferenceBtn?.classList.remove('active');
+    } else {
+        modeTextOnly.style.display = 'none';
+        modeReference.style.display = 'block';
+        modeTextOnlyBtn?.classList.remove('active');
+        modeReferenceBtn?.classList.add('active');
+    }
+}
+
+// ===== Reference Upload =====
+function handleReferenceFile(file) {
+    if (!file || !file.type.startsWith('image/')) {
+        showToast('Please select JPG, PNG or WebP image', 'warning');
+        return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+        showToast('Image too large (max 10MB)', 'warning');
+        return;
+    }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        referenceImageData = e.target.result;
+        if (referencePreviewImg) referencePreviewImg.src = referenceImageData;
+        if (referenceUploadPlaceholder) referenceUploadPlaceholder.style.display = 'none';
+        if (referencePreviewBlock) referencePreviewBlock.style.display = 'block';
+    };
+    reader.readAsDataURL(file);
+}
+
+// ===== Reference Type Preset =====
+function loadReferenceTypePreset(type) {
+    const preset = REFERENCE_TYPE_PRESETS[type];
+    if (!preset) return;
+    masterPromptsInput.value = preset.master;
+    negativePromptsInput.value = preset.negative;
 }
 
 // ===== Preset Management =====
@@ -244,13 +344,79 @@ function hideApiKeyModal() {
 }
 
 /**
+ * แสดง confirm modal แทน confirm() ให้ตรงธีม
+ * @param {string} title - หัวข้อ
+ * @param {string} message - ข้อความ (รองรับ \n และ HTML)
+ * @param {string} okText - ข้อความปุ่ม OK (เช่น "Rerun", "Delete", "OK")
+ * @param {string} okClass - class ปุ่ม OK (เช่น "btn-primary", "btn-danger")
+ * @param {string} iconClass - class ไอคอน (เช่น "bi-arrow-clockwise", "bi-trash")
+ * @returns {Promise<boolean>} - true เมื่อกด OK, false เมื่อ Cancel
+ */
+function showConfirmModal(title = 'Confirm', message = '', okText = 'OK', okClass = 'btn-primary', iconClass = 'bi-question-circle') {
+    return new Promise((resolve) => {
+        const modal = document.getElementById('confirmModal');
+        const titleEl = document.getElementById('confirmModalTitle');
+        const iconEl = modal?.querySelector('.confirm-modal-icon');
+        const bodyEl = document.getElementById('confirmModalBody');
+        const okBtn = document.getElementById('confirmModalOkBtn');
+        const cancelBtn = document.getElementById('confirmModalCancelBtn');
+
+        if (!modal) {
+            resolve(false);
+            return;
+        }
+
+        if (titleEl) titleEl.textContent = title;
+        if (iconEl) {
+            iconEl.className = `bi ${iconClass} confirm-modal-icon`;
+            iconEl.classList.remove('text-primary', 'text-danger');
+            iconEl.classList.add(okClass === 'btn-danger' ? 'text-danger' : 'text-primary');
+        }
+        if (bodyEl) {
+            const html = message.replace(/\n/g, '<br>');
+            bodyEl.innerHTML = html;
+        }
+        if (okBtn) {
+            okBtn.className = `btn ${okClass} px-4`;
+            okBtn.innerHTML = `<i class="bi bi-check-lg me-1"></i> <span>${escapeHtml(okText)}</span>`;
+        }
+
+        let resolved = false;
+        const doResolve = (val) => {
+            if (resolved) return;
+            resolved = true;
+            okBtn.removeEventListener('click', handleOk);
+            cancelBtn.removeEventListener('click', handleCancel);
+            modal.removeEventListener('hidden.bs.modal', handleHidden);
+            resolve(val);
+        };
+
+        const handleOk = () => {
+            bsModal.hide();
+            doResolve(true);
+        };
+        const handleCancel = () => {
+            bsModal.hide();
+            doResolve(false);
+        };
+        const handleHidden = () => doResolve(false);
+
+        const bsModal = new bootstrap.Modal(modal);
+        okBtn.addEventListener('click', handleOk);
+        cancelBtn.addEventListener('click', handleCancel);
+        modal.addEventListener('hidden.bs.modal', handleHidden);
+        bsModal.show();
+    });
+}
+
+/**
  * ตรวจสอบว่ามี API key หรือไม่ (ใช้ตอนโหลดหน้า)
  * ถ้ายังไม่มี key จะเปิด modal เตือน (ปิดได้)
  * ปุ่ม API Key แสดงตลอด — กรณีปิด modal โดยไม่ใส่ จะกดปุ่มเพื่อเปิดได้อีก
  */
 function checkApiKey() {
     const apiKey = getApiKey();
-    apiKeySettings.style.display = 'block';  // แสดงปุ่มตลอด
+    apiKeySettings.style.display = 'flex';  // แสดงปุ่มตลอด (flex เพื่อให้ gap ทำงาน)
     updateApiKeyButtonLabel();
     if (!apiKey) {
         showApiKeyModal();
@@ -432,41 +598,93 @@ function createPromptInputItem(value = '') {
 function addPromptInput(value = '') {
     const item = createPromptInputItem(value);
     promptsContainer.appendChild(item);
-    
-    // Add event listeners
+
     const input = item.querySelector('input');
     const removeBtn = item.querySelector('.btn-remove-prompt');
-    
     input.addEventListener('input', updatePromptCount);
     removeBtn.addEventListener('click', () => removePromptInput(item));
-    
     updatePromptCount();
-    
-    // Focus on new input
-    if (!value) {
-        input.focus();
-    }
+    if (!value) input.focus();
+}
+
+/**
+ * สร้าง prompt input item สำหรับ Reference mode (ใช้ promptCounterRef แยกจาก Text mode)
+ */
+function createPromptInputItemRef(value = '') {
+    promptCounterRef++;
+    const id = `prompt-ref-${promptCounterRef}`;
+
+    const div = document.createElement('div');
+    div.className = 'prompt-input-item';
+    div.dataset.id = id;
+
+    div.innerHTML = `
+        <div class="prompt-number">${promptCounterRef}</div>
+        <input 
+            type="text" 
+            class="prompt-input"
+            placeholder="e.g. A cute cat wearing sunglasses, digital art style"
+            value="${escapeHtml(value)}"
+            data-prompt-id="${id}"
+        />
+        <button class="btn-remove-prompt" data-remove-id="${id}" title="Remove this prompt">
+            ✕
+        </button>
+    `;
+
+    return div;
+}
+
+/**
+ * เพิ่ม prompt input ใหม่ (Reference mode)
+ */
+function addPromptInputRef(value = '') {
+    if (!promptsContainerRef) return;
+    const item = createPromptInputItemRef(value);
+    promptsContainerRef.appendChild(item);
+
+    const input = item.querySelector('input');
+    const removeBtn = item.querySelector('.btn-remove-prompt');
+    input.addEventListener('input', updatePromptCount);
+    removeBtn.addEventListener('click', () => removePromptInputRef(item));
+    updatePromptCount();
+    if (!value) input.focus();
 }
 
 /**
  * ลบ prompt input
  */
 function removePromptInput(item) {
-    // ตรวจสอบว่ามี prompt อย่างน้อย 2 อันก่อนลบ (ต้องเหลืออย่างน้อย 1)
     const items = promptsContainer.querySelectorAll('.prompt-input-item');
     if (items.length <= 1) {
         showToast('At least 1 prompt is required', 'warning');
         return;
     }
-    
-    // Fade out animation
     item.style.opacity = '0';
     item.style.transform = 'translateX(-10px)';
     item.style.transition = 'all 0.3s ease';
-    
     setTimeout(() => {
         item.remove();
         renumberPrompts();
+        updatePromptCount();
+    }, 300);
+}
+
+/**
+ * ลบ prompt input (Reference mode)
+ */
+function removePromptInputRef(item) {
+    const items = promptsContainerRef?.querySelectorAll('.prompt-input-item') || [];
+    if (items.length <= 1) {
+        showToast('At least 1 prompt is required', 'warning');
+        return;
+    }
+    item.style.opacity = '0';
+    item.style.transform = 'translateX(-10px)';
+    item.style.transition = 'all 0.3s ease';
+    setTimeout(() => {
+        item.remove();
+        renumberPromptsRef();
         updatePromptCount();
     }, 300);
 }
@@ -478,10 +696,21 @@ function renumberPrompts() {
     const items = promptsContainer.querySelectorAll('.prompt-input-item');
     items.forEach((item, index) => {
         const number = item.querySelector('.prompt-number');
-        if (number) {
-            number.textContent = index + 1;
-        }
+        if (number) number.textContent = index + 1;
     });
+    promptCounter = items.length;
+}
+
+/**
+ * เรียงหมายเลข prompts ใหม่ (Reference mode)
+ */
+function renumberPromptsRef() {
+    const items = promptsContainerRef?.querySelectorAll('.prompt-input-item') || [];
+    items.forEach((item, index) => {
+        const number = item.querySelector('.prompt-number');
+        if (number) number.textContent = index + 1;
+    });
+    promptCounterRef = items.length;
 }
 
 // ===== Aspect Ratio Model Validation =====
@@ -531,16 +760,14 @@ function updateAspectRatioAvailability() {
  * Parse prompts จาก inputs
  */
 function parsePrompts() {
-    const inputs = promptsContainer.querySelectorAll('input[data-prompt-id]');
+    const container = getCurrentMode() === 'reference' ? promptsContainerRef : promptsContainer;
+    if (!container) return [];
+    const inputs = container.querySelectorAll('input[data-prompt-id]');
     const prompts = [];
-    
     inputs.forEach(input => {
         const value = input.value.trim();
-        if (value) {
-            prompts.push(value);
-        }
+        if (value) prompts.push(value);
     });
-    
     return prompts;
 }
 
@@ -548,8 +775,10 @@ function parsePrompts() {
  * อัพเดทจำนวน prompts
  */
 function updatePromptCount() {
+    const container = getCurrentMode() === 'reference' ? promptsContainerRef : promptsContainer;
+    const countEl = getCurrentMode() === 'reference' ? promptCountRef : promptCount;
     const prompts = parsePrompts();
-    promptCount.textContent = prompts.length;
+    if (countEl) countEl.textContent = prompts.length;
 }
 
 /**
@@ -621,8 +850,8 @@ function createGalleryItem(result, index) {
     const promptHtml = escapeHtml(result.prompt);
     
     div.innerHTML = `
-        <div class="card h-100 shadow-sm">
-            <img src="${imageUrl}" alt="Generated Image" class="card-img-top" loading="lazy" style="object-fit: cover; height: 250px;">
+        <div class="card h-100 shadow-sm gallery-item-card">
+            <img src="${imageUrl}" alt="Generated Image" class="card-img-top gallery-item-img" loading="lazy" style="object-fit: cover; height: 250px; cursor: pointer;" title="Click to view full size">
             <div class="card-body">
                 <div class="mb-2">
                     <div class="gallery-item-prompt small text-muted" style="line-height: 1.4;" title="${promptHtml}">
@@ -648,7 +877,8 @@ function createGalleryItem(result, index) {
     textEl.style.webkitLineClamp = '2';
     textEl.style.overflow = 'hidden';
     
-    toggleBtn.addEventListener('click', () => {
+    toggleBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
         const isExpanded = textEl.style.webkitLineClamp === 'unset';
         if (isExpanded) {
             textEl.style.webkitLineClamp = '2';
@@ -658,8 +888,35 @@ function createGalleryItem(result, index) {
             toggleBtn.innerHTML = '<i class="bi bi-chevron-up"></i> <span>Show less</span>';
         }
     });
-    
+
+    // คลิกรูปเพื่อดูตัวอย่างเต็ม
+    const imgEl = div.querySelector('.gallery-item-img');
+    imgEl.addEventListener('click', () => {
+        showImagePreview(imageUrl, result.filename, result.prompt);
+    });
+
     return div;
+}
+
+/**
+ * แสดง modal ดูตัวอย่างรูปเต็ม
+ */
+function showImagePreview(imageUrl, filename, prompt) {
+    const modal = document.getElementById('imagePreviewModal');
+    const imgEl = document.getElementById('imagePreviewImg');
+    const promptEl = document.getElementById('imagePreviewPrompt');
+    const downloadEl = document.getElementById('imagePreviewDownload');
+
+    if (imgEl) imgEl.src = imageUrl;
+    if (imgEl) imgEl.alt = prompt || 'Generated Image';
+    if (promptEl) promptEl.textContent = prompt || '';
+    if (downloadEl) {
+        downloadEl.href = imageUrl;
+        downloadEl.download = filename || 'image.png';
+    }
+
+    const bsModal = new bootstrap.Modal(modal);
+    bsModal.show();
 }
 
 /**
@@ -677,23 +934,27 @@ function escapeHtml(text) {
  * เริ่มต้น generation
  */
 async function startGeneration() {
-    // เช็ค API key ก่อน
     const apiKey = getApiKey();
     if (!apiKey) {
         showToast('Please enter API key first', 'warning');
         showApiKeyModal();
         return;
     }
-    
+
     const prompts = parsePrompts();
-    
     if (prompts.length === 0) {
         showToast('Please enter at least 1 prompt', 'warning');
         return;
     }
-    
+
+    const isReferenceMode = getCurrentMode() === 'reference';
+    if (isReferenceMode && !referenceImageData) {
+        showToast('Please upload a reference image first', 'warning');
+        return;
+    }
+
     const data = {
-        api_key: apiKey,  // ส่ง API key ไปด้วย
+        api_key: apiKey,
         prompts: prompts,
         model: modelSelect.value,
         mode: modeSelect.value,
@@ -702,11 +963,18 @@ async function startGeneration() {
         suffix: suffixInput.value.trim(),
         negative_prompts: negativePromptsInput.value.trim()
     };
-    
+
+    if (isReferenceMode) {
+        data.reference_image = referenceImageData;
+        data.reference_type = referenceTypeSelect?.value || '';
+    }
+
+    const apiUrl = isReferenceMode ? '/api/generate-with-reference' : '/api/generate';
+
     try {
         setLoading(true);
-        
-        const response = await fetch('/api/generate', {
+
+        const response = await fetch(apiUrl, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -936,9 +1204,14 @@ async function downloadAll() {
 async function deleteJob() {
     if (!currentJobId) return;
     
-    if (!confirm('Delete all images? This cannot be undone.')) {
-        return;
-    }
+    const confirmed = await showConfirmModal(
+        'Delete All Images?',
+        'This cannot be undone.',
+        'Delete',
+        'btn-danger',
+        'bi-trash'
+    );
+    if (!confirmed) return;
     
     try {
         const response = await fetch(`/api/delete/${currentJobId}`, {
@@ -966,28 +1239,45 @@ async function deleteJob() {
 /**
  * Clear form
  */
-function clearForm() {
+async function clearForm() {
     if (statusCheckInterval) {
-        if (!confirm('Generation in progress. Cancel?')) {
-            return;
-        }
+        const confirmed = await showConfirmModal(
+            'Cancel Generation?',
+            'Generation is in progress. Cancel and clear?',
+            'Yes, Cancel',
+            'btn-warning',
+            'bi-exclamation-triangle'
+        );
+        if (!confirmed) return;
         stopStatusPolling();
     }
     
-    // Clear all prompt inputs
+    // Clear all prompt inputs (both modes)
     promptsContainer.innerHTML = '';
+    if (promptsContainerRef) promptsContainerRef.innerHTML = '';
     promptCounter = 0;
-    
+    promptCounterRef = 0;
+
     // Add one empty prompt
     addPromptInput();
-    
+    if (getCurrentMode() === 'reference') addPromptInputRef();
+
     masterPromptsInput.value = '';
     suffixInput.value = '';
     negativePromptsInput.value = '';
-    
+
     if (presetSelect) presetSelect.value = '';
     if (deletePresetBtn) deletePresetBtn.style.display = 'none';
-    
+
+    // Clear reference mode
+    referenceImageData = null;
+    if (referencePreviewImg) referencePreviewImg.src = '';
+    if (referenceUploadPlaceholder) referenceUploadPlaceholder.style.display = 'block';
+    if (referencePreviewBlock) referencePreviewBlock.style.display = 'none';
+    if (referenceTypeSelect) referenceTypeSelect.value = '';
+    const refTypeBtnVal = referenceTypeDropdownBtn?.querySelector('.custom-dropdown-value');
+    if (refTypeBtnVal) refTypeBtnVal.textContent = '-- Select type --';
+
     progressSection.style.display = 'none';
     resultsSection.style.display = 'none';
     if (cancelJobBtn) cancelJobBtn.style.display = 'none';
@@ -1069,11 +1359,13 @@ function renderHistory(jobs) {
             minute: '2-digit'
         });
         
+        const refBadge = job.has_reference ? '<span class="badge bg-info ms-1" title="Reference image">Ref</span>' : '';
+
         item.innerHTML = `
             <div class="d-flex justify-content-between align-items-start">
                 <div class="flex-grow-1">
                     <div class="fw-bold mb-2">
-                        ${statusIcon} ${job.total} Prompts - ${job.success_count} completed
+                        ${statusIcon} ${job.total} Prompts - ${job.success_count} completed ${refBadge}
                     </div>
                     <div class="d-flex flex-wrap gap-3 small text-muted">
                         <span><i class="bi bi-clock"></i> ${dateStr}</span>
@@ -1083,7 +1375,10 @@ function renderHistory(jobs) {
                     </div>
                 </div>
                 <div class="btn-group btn-group-sm" role="group">
-                    <button class="btn btn-outline-primary btn-history-rerun" data-job-id="${job.id}" title="Rerun with same settings">
+                    <button class="btn btn-outline-primary btn-history-view" data-job-id="${job.id}" title="View preview and details">
+                        <i class="bi bi-eye"></i> View
+                    </button>
+                    <button class="btn btn-outline-primary btn-history-rerun" data-job-id="${job.id}" title="${job.has_reference ? 'Rerun not supported' : 'View preview then Rerun'}" ${job.has_reference ? 'disabled' : ''}>
                         <i class="bi bi-arrow-clockwise"></i> Rerun
                     </button>
                     <button class="btn btn-outline-danger btn-history-delete" data-job-id="${job.id}" title="Delete from history">
@@ -1092,11 +1387,15 @@ function renderHistory(jobs) {
                 </div>
             </div>
         `;
-        
-        // Add event listeners
+
+        const viewBtn = item.querySelector('.btn-history-view');
+        viewBtn.addEventListener('click', () => showHistoryPreview(job.id));
+
         const rerunBtn = item.querySelector('.btn-history-rerun');
-        rerunBtn.addEventListener('click', () => rerunJob(job.id, job));
-        
+        if (!job.has_reference) {
+            rerunBtn.addEventListener('click', () => showHistoryPreview(job.id));
+        }
+
         const deleteBtn = item.querySelector('.btn-history-delete');
         deleteBtn.addEventListener('click', () => deleteHistoryJob(job.id));
         
@@ -1108,9 +1407,14 @@ function renderHistory(jobs) {
  * Delete all jobs from history
  */
 async function deleteAllHistory() {
-    if (!confirm('Delete all jobs from history? This cannot be undone.')) {
-        return;
-    }
+    const confirmed = await showConfirmModal(
+        'Delete All History?',
+        'Delete all jobs from history? This cannot be undone.',
+        'Delete All',
+        'btn-danger',
+        'bi-trash'
+    );
+    if (!confirmed) return;
     
     try {
         const response = await fetch('/api/history/all', {
@@ -1135,9 +1439,14 @@ async function deleteAllHistory() {
  * Delete a job from history
  */
 async function deleteHistoryJob(jobId) {
-    if (!confirm('Delete this job from history?')) {
-        return;
-    }
+    const confirmed = await showConfirmModal(
+        'Delete Job?',
+        'Delete this job from history?',
+        'Delete',
+        'btn-danger',
+        'bi-trash'
+    );
+    if (!confirmed) return;
     
     try {
         const response = await fetch(`/api/history/${jobId}`, {
@@ -1159,21 +1468,91 @@ async function deleteHistoryJob(jobId) {
 }
 
 /**
+ * Show history preview modal (images and details before Rerun)
+ */
+async function showHistoryPreview(jobId) {
+    try {
+        const response = await fetch(`/api/history/${jobId}`);
+        const result = await response.json();
+        if (!result.success || !result.job) {
+            showToast('Failed to load job details', 'error');
+            return;
+        }
+        const job = result.job;
+
+        document.getElementById('historyPreviewModel').textContent = job.model?.includes('pro') ? 'Pro' : 'Fast';
+        document.getElementById('historyPreviewMode').textContent = job.mode === 'sequential' ? 'Sequential' : 'Parallel';
+        document.getElementById('historyPreviewAspect').textContent = job.aspect_ratio || '1:1';
+
+        const promptsEl = document.getElementById('historyPreviewPrompts');
+        promptsEl.innerHTML = '';
+        (job.prompts || []).forEach((p, i) => {
+            const div = document.createElement('div');
+            div.className = 'prompt-item';
+            div.textContent = `${i + 1}. ${p}`;
+            promptsEl.appendChild(div);
+        });
+
+        const masterNegEl = document.getElementById('historyPreviewMasterNegative');
+        const master = job.master_prompts ? `Master: ${job.master_prompts}` : '';
+        const neg = job.negative_prompts ? `Negative: ${job.negative_prompts}` : '';
+        masterNegEl.textContent = [master, neg].filter(Boolean).join(' | ') || '(none)';
+
+        const imagesEl = document.getElementById('historyPreviewImages');
+        const noImagesEl = document.getElementById('historyPreviewNoImages');
+        imagesEl.innerHTML = '';
+        const results = job.results || [];
+        if (results.length === 0) {
+            noImagesEl.style.display = 'block';
+        } else {
+            noImagesEl.style.display = 'none';
+            results.forEach((r, i) => {
+                const col = document.createElement('div');
+                col.className = 'col-6 col-md-4 col-lg-3';
+                const url = `/static/generated/${r.filename}`;
+                col.innerHTML = `
+                    <div class="history-preview-thumb" title="${escapeHtml(r.prompt || '')}">
+                        <img src="${url}" alt="Image ${i + 1}" onerror="this.parentElement.innerHTML='<div class=\\'text-muted small p-2\\'>Image unavailable</div>'">
+                    </div>
+                `;
+                const thumb = col.querySelector('.history-preview-thumb');
+                thumb.addEventListener('click', () => showImagePreview(url, r.filename, r.prompt));
+                imagesEl.appendChild(col);
+            });
+        }
+
+        const rerunBtn = document.getElementById('historyPreviewRerunBtn');
+        rerunBtn.style.display = job.has_reference ? 'none' : 'inline-block';
+        rerunBtn.onclick = null;
+        if (!job.has_reference) {
+            rerunBtn.onclick = async () => {
+                const modal = document.getElementById('historyPreviewModal');
+                const bsModal = bootstrap.Modal.getInstance(modal);
+                if (bsModal) bsModal.hide();
+                await rerunJob(job.id, job);
+            };
+        }
+
+        const modal = document.getElementById('historyPreviewModal');
+        const bsModal = new bootstrap.Modal(modal);
+        bsModal.show();
+    } catch (error) {
+        console.error('Error loading history preview:', error);
+        showToast('Failed to load preview: ' + error.message, 'error');
+    }
+}
+
+/**
  * Rerun a job from history
  */
 async function rerunJob(jobId, jobData) {
-    // เช็ค API key
     const apiKey = getApiKey();
     if (!apiKey) {
         showToast('Please enter API key first', 'warning');
         showApiKeyModal();
         return;
     }
-    
-    if (!confirm(`Rerun this job?\n\nPrompts: ${jobData.total}\nModel: ${jobData.model}\nAspect Ratio: ${jobData.aspect_ratio || '1:1'}`)) {
-        return;
-    }
-    
+
     try {
         setLoading(true);
         
@@ -1253,9 +1632,14 @@ async function fetchCleanupStatus() {
  * Perform cleanup now
  */
 async function performCleanupNow() {
-    if (!confirm('Delete all old images?')) {
-        return;
-    }
+    const confirmed = await showConfirmModal(
+        'Clean Up Now?',
+        'Delete all old generated images?',
+        'Delete',
+        'btn-danger',
+        'bi-trash'
+    );
+    if (!confirmed) return;
     
     cleanupNowBtn.disabled = true;
     cleanupNowBtn.textContent = '🧹 Deleting...';
@@ -1312,6 +1696,14 @@ if (changeApiKeyBtn) {
     });
 }
 
+// Theme toggle buttons
+if (themeLightBtn) {
+    themeLightBtn.addEventListener('click', () => applyTheme('light'));
+}
+if (themeDarkBtn) {
+    themeDarkBtn.addEventListener('click', () => applyTheme('dark'));
+}
+
 // Custom dropdown sync (เลือก option แล้วอัพเดท select + ปุ่ม)
 document.querySelectorAll('.custom-dropdown-menu .dropdown-item[data-value]').forEach(item => {
     item.addEventListener('click', (e) => {
@@ -1358,8 +1750,106 @@ document.querySelectorAll('.custom-dropdown-menu .dropdown-item[data-value]').fo
     });
 });
 
+// Mode tabs
+if (modeTextOnlyBtn) modeTextOnlyBtn.addEventListener('click', () => switchMode('text'));
+if (modeReferenceBtn) modeReferenceBtn.addEventListener('click', () => {
+    switchMode('reference');
+    if (promptsContainerRef?.children.length === 0) addPromptInputRef();
+});
+
+// Reference upload zone
+if (referenceUploadZone) {
+    referenceUploadZone.addEventListener('click', (e) => {
+        if (e.target.closest('.reference-remove-btn')) return;
+        referenceFileInput?.click();
+    });
+    referenceUploadZone.addEventListener('dragover', (e) => { e.preventDefault(); e.stopPropagation(); });
+    referenceUploadZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const file = e.dataTransfer?.files?.[0];
+        if (file) handleReferenceFile(file);
+    });
+}
+if (referenceFileInput) {
+    referenceFileInput.addEventListener('change', (e) => {
+        const file = e.target.files?.[0];
+        if (file) handleReferenceFile(file);
+        e.target.value = '';
+    });
+}
+if (referenceRemoveBtn) {
+    referenceRemoveBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        referenceImageData = null;
+        referencePreviewImg.src = '';
+        referenceUploadPlaceholder.style.display = 'block';
+        referencePreviewBlock.style.display = 'none';
+        if (referenceTypeSelect) referenceTypeSelect.value = '';
+        const btnVal = referenceTypeDropdownBtn?.querySelector('.custom-dropdown-value');
+        if (btnVal) btnVal.textContent = '-- Select type --';
+    });
+}
+
+// Reference type dropdown - load preset on change
+if (referenceTypeDropdownMenu) {
+    referenceTypeDropdownMenu.addEventListener('click', (e) => {
+        const item = e.target.closest('.dropdown-item[data-value]');
+        if (!item) return;
+        e.preventDefault();
+        const value = item.dataset.value;
+        const display = item.textContent.trim();
+        if (referenceTypeSelect) referenceTypeSelect.value = value || '';
+        const btnVal = referenceTypeDropdownBtn?.querySelector('.custom-dropdown-value');
+        if (btnVal) btnVal.textContent = display;
+        if (value) loadReferenceTypePreset(value);
+    });
+}
+
+// Auto-detect reference type
+if (analyzeRefTypeBtn) {
+    analyzeRefTypeBtn.addEventListener('click', async () => {
+        if (!referenceImageData) {
+            showToast('Please upload an image first', 'warning');
+            return;
+        }
+        const apiKey = getApiKey();
+        if (!apiKey) {
+            showToast('Please enter API key first', 'warning');
+            showApiKeyModal();
+            return;
+        }
+        analyzeRefTypeBtn.disabled = true;
+        analyzeRefTypeBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Detecting...';
+        try {
+            const res = await fetch('/api/analyze-reference-type', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ api_key: apiKey, reference_image: referenceImageData })
+            });
+            const result = await res.json();
+            if (result.success && result.type) {
+                referenceTypeSelect.value = result.type;
+                const btnVal = referenceTypeDropdownBtn?.querySelector('.custom-dropdown-value');
+                const labels = { person: 'Person', animal: 'Animal', object: 'Object' };
+                if (btnVal) btnVal.textContent = labels[result.type] || result.type;
+                loadReferenceTypePreset(result.type);
+                showToast(`Detected: ${labels[result.type] || result.type}`, 'success');
+            } else {
+                showToast(result.error || 'Detection failed', 'error');
+            }
+        } catch (err) {
+            showToast('Connection error: ' + err.message, 'error');
+        } finally {
+            analyzeRefTypeBtn.disabled = false;
+            analyzeRefTypeBtn.innerHTML = '<i class="bi bi-magic"></i> Auto-detect';
+        }
+    });
+}
+
 // Add prompt button
-addPromptBtn.addEventListener('click', () => addPromptInput());
+if (addPromptBtn) addPromptBtn.addEventListener('click', () => addPromptInput());
+if (addPromptBtnRef) addPromptBtnRef.addEventListener('click', () => addPromptInputRef());
 
 // Generate button
 generateBtn.addEventListener('click', startGeneration);
@@ -1481,6 +1971,9 @@ if (refreshCleanupBtn) refreshCleanupBtn.addEventListener('click', fetchCleanupS
 if (cleanupNowBtn) cleanupNowBtn.addEventListener('click', performCleanupNow);
 
 // ===== Initialization =====
+
+// โหลด theme ก่อน (ป้องกัน flash)
+initTheme();
 
 // เช็ค API key ตอนโหลดหน้า
 checkApiKey();
