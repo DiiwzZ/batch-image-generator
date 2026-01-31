@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Batch Image Generator - AI Image Generation</title>
+    
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.2/font/bootstrap-icons.css">
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <!-- API Key Modal (Bootstrap) -->
+    <div class="modal fade" id="apiKeyModal" tabindex="-1" aria-labelledby="apiKeyModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content api-key-modal-content">
+                <div class="modal-header border-0 pb-0">
+                    <div>
+                        <h5 class="modal-title d-flex align-items-center gap-2" id="apiKeyModalLabel">
+                            <i class="bi bi-key-fill text-primary"></i> Google Gemini API Key
+                        </h5>
+                        <p class="text-muted mb-0 mt-1 small">Enter your API key to get started</p>
+                    </div>
+                </div>
+                <div class="modal-body pt-2">
+                    <div class="api-key-notice" role="alert">
+                        <strong>Important</strong>
+                        <ul class="mb-0 mt-2 ps-3">
+                            <li>Your API key is stored in your browser only (localStorage)</li>
+                            <li>We send this key directly to Google Gemini API (not through server)</li>
+                            <li>All costs are charged to your Google Cloud account</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="apiKeyInput" class="form-label fw-medium">API Key</label>
+                        <div class="input-group api-key-input-group">
+                            <input 
+                                type="password" 
+                                class="form-control"
+                                id="apiKeyInput" 
+                                placeholder="AIza..."
+                                autocomplete="off"
+                            />
+                            <button class="btn btn-outline-secondary" type="button" id="toggleApiKeyVisibility" title="Show/Hide API Key">
+                                <i class="bi bi-eye"></i>
+                            </button>
+                        </div>
+                        <div class="form-text mt-1">
+                            No API key yet? 
+                            <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" class="text-decoration-none">
+                                Get one at Google AI Studio →
+                            </a>
+                        </div>
+                    </div>
+                    
+                    <div id="apiKeyStatus" class="alert" style="display: none;" role="alert"></div>
+                </div>
+                <div class="modal-footer border-0 pt-0 d-flex justify-content-between">
+                    <button type="button" class="btn btn-outline-secondary" id="closeApiKeyModalBtn" data-bs-dismiss="modal" aria-label="Close">
+                        Close
+                    </button>
+                    <button type="button" class="btn btn-primary px-4" id="testAndSaveKeyBtn">
+                        <i class="bi bi-check-circle me-2"></i> Test & Save
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Preset Name Modal -->
+    <div class="modal fade" id="presetNameModal" tabindex="-1" aria-labelledby="presetNameModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content preset-modal-content">
+                <div class="modal-header border-0 pb-0">
+                    <h5 class="modal-title d-flex align-items-center gap-2" id="presetNameModalLabel">
+                        <i class="bi bi-save text-primary"></i> Save Preset
+                    </h5>
+                </div>
+                <div class="modal-body pt-2">
+                    <label for="presetNameInput" class="form-label fw-medium">Preset name</label>
+                    <input type="text" class="form-control" id="presetNameInput" placeholder="e.g. Photography, Anime style" autocomplete="off" />
+                    <div id="presetNameError" class="text-danger small mt-2" style="display: none;">Please enter a preset name</div>
+                </div>
+                <div class="modal-footer border-0 pt-0 d-flex justify-content-end gap-2">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary px-4" id="presetNameSaveBtn">
+                        <i class="bi bi-check-lg me-1"></i> Save
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete Preset Confirm Modal -->
+    <div class="modal fade" id="deletePresetModal" tabindex="-1" aria-labelledby="deletePresetModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content preset-modal-content">
+                <div class="modal-header border-0 pb-0">
+                    <h5 class="modal-title d-flex align-items-center gap-2" id="deletePresetModalLabel">
+                        <i class="bi bi-trash text-danger"></i> Delete Preset
+                    </h5>
+                </div>
+                <div class="modal-body pt-2">
+                    <p class="mb-0 text-muted" id="deletePresetMessage">Delete preset "<span id="deletePresetName"></span>"?</p>
+                </div>
+                <div class="modal-footer border-0 pt-0 d-flex justify-content-end gap-2">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-danger px-4" id="deletePresetConfirmBtn">
+                        <i class="bi bi-trash me-1"></i> Delete
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="container py-4">
+        <!-- Header with API Key button -->
+        <header class="position-relative text-center mb-4" id="mainHeader">
+            <div id="apiKeySettings" class="api-key-settings" style="display: none;">
+                <button class="btn btn-sm btn-outline-secondary" id="changeApiKeyBtn" title="Change API Key">
+                    <i class="bi bi-key"></i> Change API Key
+                </button>
+            </div>
+            <h1 class="display-4 fw-bold mb-2">🎨 Batch Image Generator</h1>
+            <p class="lead text-muted">Generate images with Google Gemini (Nano Banana)</p>
+        </header>
+
+        <!-- Main Content -->
+        <div class="row g-4">
+            <!-- Input Section -->
+            <div class="col-12">
+                <div class="card shadow-sm main-form-card">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h5 class="card-title mb-0">📝 Prompts</h5>
+                            <span class="badge bg-secondary">
+                                <span id="promptCount">0</span> prompts
+                            </span>
+                        </div>
+                
+                        <div class="mb-3" id="promptsContainer">
+                            <!-- Prompt items will be added here dynamically -->
+                        </div>
+                        
+                        <button id="addPromptBtn" class="btn btn-primary" style="border-radius: 20px; padding: 8px 20px;">
+                            <i class="bi bi-plus-circle"></i> Add Prompt
+                        </button>
+
+                        <!-- Settings -->
+                        <div class="mt-4">
+                            <!-- Basic Settings Group -->
+                            <div class="settings-group-box settings-group-basic">
+                                <h6 class="settings-group-heading">
+                                    <i class="bi bi-gear"></i> BASIC SETTINGS
+                                </h6>
+                                <div class="row g-3">
+                                <div class="col-md-4">
+                                    <label class="form-label text-muted small">
+                                        <i class="bi bi-cpu me-1"></i> Model
+                                    </label>
+                                    <div class="dropdown custom-dropdown">
+                                        <button class="custom-dropdown-btn" type="button" data-bs-toggle="dropdown" id="modelDropdownBtn">
+                                            <span class="custom-dropdown-value">Nano Banana (Fast)</span>
+                                            <i class="bi bi-chevron-down"></i>
+                                        </button>
+                                        <ul class="dropdown-menu custom-dropdown-menu" id="modelDropdownMenu">
+                                            <li><a class="dropdown-item" href="#" data-value="models/gemini-2.5-flash-image">Nano Banana (Fast)</a></li>
+                                            <li><a class="dropdown-item" href="#" data-value="models/gemini-3-pro-image-preview">Nano Banana Pro (Quality)</a></li>
+                                        </ul>
+                                        <select class="d-none" id="modelSelect">
+                                            <option value="models/gemini-2.5-flash-image" selected>Nano Banana (Fast)</option>
+                                            <option value="models/gemini-3-pro-image-preview">Nano Banana Pro (Quality)</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-text small">Fast = faster, Pro = higher quality</div>
+                                </div>
+
+                                <div class="col-md-4">
+                                    <label class="form-label text-muted small">
+                                        <i class="bi bi-gear-wide-connected me-1"></i> Generation Mode
+                                    </label>
+                                    <div class="dropdown custom-dropdown">
+                                        <button class="custom-dropdown-btn" type="button" data-bs-toggle="dropdown" id="modeDropdownBtn">
+                                            <span class="custom-dropdown-value">Sequential (one by one)</span>
+                                            <i class="bi bi-chevron-down"></i>
+                                        </button>
+                                        <ul class="dropdown-menu custom-dropdown-menu" id="modeDropdownMenu">
+                                            <li><a class="dropdown-item" href="#" data-value="sequential">Sequential (one by one)</a></li>
+                                            <li><a class="dropdown-item" href="#" data-value="parallel">Parallel (concurrent)</a></li>
+                                        </ul>
+                                        <select class="d-none" id="modeSelect">
+                                            <option value="sequential" selected>Sequential (one by one)</option>
+                                            <option value="parallel">Parallel (concurrent)</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-text small">Sequential helps prevent rate limit</div>
+                                </div>
+
+                                <div class="col-md-4">
+                                    <label class="form-label text-muted small">
+                                        <i class="bi bi-aspect-ratio me-1"></i> Aspect Ratio
+                                    </label>
+                                    <div class="dropdown custom-dropdown">
+                                        <button class="custom-dropdown-btn" type="button" data-bs-toggle="dropdown" id="aspectRatioDropdownBtn">
+                                            <span class="custom-dropdown-value"><span class="ratio-preview ratio-1-1"></span><span class="ratio-text">1:1 Square</span></span>
+                                            <i class="bi bi-chevron-down"></i>
+                                        </button>
+                                        <ul class="dropdown-menu custom-dropdown-menu" id="aspectRatioDropdownMenu">
+                                            <li><h6 class="dropdown-header">Square</h6></li>
+                                            <li><a class="dropdown-item" href="#" data-value="1:1" data-display="1:1 Square"><span class="ratio-preview ratio-1-1"></span><span class="ratio-text">1:1 Square</span></a></li>
+                                            <li><hr class="dropdown-divider"></li>
+                                            <li><h6 class="dropdown-header">Landscape</h6></li>
+                                            <li><a class="dropdown-item" href="#" data-value="21:9" data-display="21:9 Cinematic" data-requires-pro="true"><span class="ratio-preview ratio-21-9"></span><span class="ratio-text">21:9 Cinematic</span></a></li>
+                                            <li><a class="dropdown-item" href="#" data-value="16:9" data-display="16:9 Widescreen" data-requires-pro="true"><span class="ratio-preview ratio-16-9"></span><span class="ratio-text">16:9 Widescreen</span></a></li>
+                                            <li><a class="dropdown-item" href="#" data-value="4:3" data-display="4:3 Standard" data-requires-pro="true"><span class="ratio-preview ratio-4-3"></span><span class="ratio-text">4:3 Standard</span></a></li>
+                                            <li><a class="dropdown-item" href="#" data-value="3:2" data-display="3:2 Classic Photo" data-requires-pro="true"><span class="ratio-preview ratio-3-2"></span><span class="ratio-text">3:2 Classic Photo</span></a></li>
+                                            <li><hr class="dropdown-divider"></li>
+                                            <li><h6 class="dropdown-header">Portrait</h6></li>
+                                            <li><a class="dropdown-item" href="#" data-value="2:3" data-display="2:3 Classic Photo" data-requires-pro="true"><span class="ratio-preview ratio-2-3"></span><span class="ratio-text">2:3 Classic Photo</span></a></li>
+                                            <li><a class="dropdown-item" href="#" data-value="3:4" data-display="3:4 Portrait" data-requires-pro="true"><span class="ratio-preview ratio-3-4"></span><span class="ratio-text">3:4 Portrait</span></a></li>
+                                            <li><a class="dropdown-item" href="#" data-value="9:16" data-display="9:16 Mobile" data-requires-pro="true"><span class="ratio-preview ratio-9-16"></span><span class="ratio-text">9:16 Mobile</span></a></li>
+                                            <li><hr class="dropdown-divider"></li>
+                                            <li><h6 class="dropdown-header">Flexible</h6></li>
+                                            <li><a class="dropdown-item" href="#" data-value="5:4" data-display="5:4 Almost Square" data-requires-pro="true"><span class="ratio-preview ratio-5-4"></span><span class="ratio-text">5:4 Almost Square</span></a></li>
+                                            <li><a class="dropdown-item" href="#" data-value="4:5" data-display="4:5 Almost Square" data-requires-pro="true"><span class="ratio-preview ratio-4-5"></span><span class="ratio-text">4:5 Almost Square</span></a></li>
+                                        </ul>
+                                        <select class="d-none" id="aspectRatioSelect">
+                                            <option value="1:1" selected>1:1 - Square</option>
+                                            <option value="21:9">21:9 - Cinematic</option>
+                                            <option value="16:9">16:9 - Widescreen</option>
+                                            <option value="4:3">4:3 - Standard</option>
+                                            <option value="3:2">3:2 - Classic Photo</option>
+                                            <option value="2:3">2:3 - Classic Photo</option>
+                                            <option value="3:4">3:4 - Portrait</option>
+                                            <option value="9:16">9:16 - Mobile</option>
+                                            <option value="5:4">5:4 - Almost Square</option>
+                                            <option value="4:5">4:5 - Almost Square</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-text small">Image aspect ratio</div>
+                                </div>
+                            </div>
+                            </div>
+
+                            <!-- Advanced Prompts Group -->
+                            <div class="settings-group-box settings-group-advanced">
+                                <h6 class="settings-group-heading">
+                                    <i class="bi bi-stars"></i> ADVANCED PROMPTS (OPTIONAL)
+                                </h6>
+                                <div class="row g-3 align-items-start">
+                                <div class="col-md-4">
+                                    <label for="masterPromptsInput" class="form-label text-muted small">
+                                        <i class="bi bi-stars me-1"></i> Master Prompts (prefix)
+                                    </label>
+                                    <input type="text" class="form-control" id="masterPromptsInput" placeholder="e.g. high quality, 4K, masterclass" style="border-radius: 6px;">
+                                    <div class="form-text small">Added before every prompt</div>
+                                    <div class="mt-3">
+                                        <label class="form-label text-muted small">Load Preset</label>
+                                        <div class="dropdown custom-dropdown">
+                                            <button class="custom-dropdown-btn" type="button" data-bs-toggle="dropdown" id="presetDropdownBtn">
+                                                <span class="custom-dropdown-value">-- Select preset --</span>
+                                                <i class="bi bi-chevron-down"></i>
+                                            </button>
+                                            <ul class="dropdown-menu custom-dropdown-menu" id="presetDropdownMenu">
+                                                <li><a class="dropdown-item" href="#" data-value="">-- Select preset --</a></li>
+                                            </ul>
+                                            <select class="d-none" id="presetSelect">
+                                                <option value="">-- Select preset --</option>
+                                            </select>
+                                        </div>
+                                        <div class="d-flex gap-2 mt-2">
+                                            <button type="button" class="btn btn-outline-primary btn-sm" id="savePresetBtn">
+                                                <i class="bi bi-save"></i> Save Preset
+                                            </button>
+                                            <button type="button" class="btn btn-outline-danger btn-sm" id="deletePresetBtn" title="Delete selected preset" style="display: none;">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="col-md-4">
+                                    <label for="suffixInput" class="form-label text-muted small">
+                                        <i class="bi bi-file-text me-1"></i> Suffix
+                                    </label>
+                                    <input type="text" class="form-control" id="suffixInput" placeholder="e.g. professional photography, detailed" style="border-radius: 6px;">
+                                    <div class="form-text small">Added after every prompt</div>
+                                </div>
+
+                                <div class="col-md-4">
+                                    <label for="negativePromptsInput" class="form-label text-muted small">
+                                        <i class="bi bi-slash-circle me-1"></i> Negative Prompts
+                                    </label>
+                                    <input type="text" class="form-control" id="negativePromptsInput" placeholder="e.g. blurry, low quality, distorted, watermark" style="border-radius: 6px;">
+                                    <div class="form-text small">Added at end as ", avoid: ..."</div>
+                                </div>
+                            </div>
+                            </div>
+                        </div>
+
+                        <!-- Action Buttons -->
+                        <div class="d-flex gap-2 mt-4">
+                            <button id="generateBtn" class="btn btn-primary btn-lg flex-fill">
+                                <i class="bi bi-rocket-takeoff"></i> Generate Images
+                            </button>
+                            <button id="clearBtn" class="btn btn-outline-secondary">
+                                <i class="bi bi-trash"></i> Clear
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Progress Section -->
+            <div class="col-12" id="progressSection" style="display: none;">
+                <div class="card shadow-sm progress-card">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center mb-4">
+                            <h5 class="card-title mb-0 d-flex align-items-center gap-2">
+                                <i class="bi bi-graph-up-arrow text-primary"></i> Progress
+                            </h5>
+                            <span class="text-muted small" id="progressSummary">0 / 0 · 0%</span>
+                        </div>
+                        
+                        <div class="progress-block mb-4">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <span class="text-muted small" id="progressText">0 / 0</span>
+                                <span class="fw-semibold text-primary" id="progressPercentage">0%</span>
+                            </div>
+                            <div class="progress progress-custom" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                                <div class="progress-bar progress-bar-custom" id="progressFill" style="width: 0%;"></div>
+                            </div>
+                        </div>
+
+                        <div class="progress-badges d-flex gap-2 flex-wrap mb-4">
+                            <span class="badge badge-completed rounded-pill px-3 py-2">
+                                <i class="bi bi-check-circle-fill me-1"></i> Completed <span id="completedCount">0</span>
+                            </span>
+                            <span class="badge badge-failed rounded-pill px-3 py-2">
+                                <i class="bi bi-x-circle-fill me-1"></i> Failed <span id="failedCount">0</span>
+                            </span>
+                            <span class="badge badge-pending rounded-pill px-3 py-2">
+                                <i class="bi bi-hourglass-split me-1"></i> Pending <span id="pendingCount">0</span>
+                            </span>
+                        </div>
+
+                        <div class="d-flex justify-content-center mb-4">
+                            <button id="cancelJobBtn" class="btn btn-outline-danger btn-sm" style="display: none;" title="Stop generation and show completed images">
+                                <i class="bi bi-stop-circle me-1"></i> Stop / Cancel
+                            </button>
+                        </div>
+
+                        <div class="progress-list-label small text-muted text-uppercase fw-semibold mb-2">Prompt status</div>
+                        <div id="promptList"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Results Section -->
+            <div class="col-12" id="resultsSection" style="display: none;">
+                <div class="card shadow-sm">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h5 class="card-title mb-0">🖼️ Results</h5>
+                            <div class="btn-group" role="group">
+                                <button id="downloadAllBtn" class="btn btn-success btn-sm">
+                                    <i class="bi bi-download"></i> Download All (ZIP)
+                                </button>
+                                <button id="deleteJobBtn" class="btn btn-danger btn-sm">
+                                    <i class="bi bi-trash"></i> Delete All
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="row g-3" id="gallery"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- History Section -->
+        <div class="card shadow-sm mt-4" id="historySection">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="card-title mb-0">📜 Job History</h5>
+                    <div class="btn-group btn-group-sm" role="group">
+                        <button id="refreshHistoryBtn" class="btn btn-outline-secondary">
+                            <i class="bi bi-arrow-clockwise"></i> Refresh
+                        </button>
+                        <button id="deleteAllHistoryBtn" class="btn btn-outline-danger">
+                            <i class="bi bi-trash"></i> Delete All
+                        </button>
+                    </div>
+                </div>
+                
+                <div id="historyList" class="list-group list-group-flush">
+                    <!-- History items will be added here -->
+                </div>
+                
+                <div id="historyEmpty" class="text-center text-muted py-5" style="display: none;">
+                    <i class="bi bi-clock-history fs-1 opacity-50"></i>
+                    <p class="mt-2 mb-0">No generation history yet</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Cleanup Section -->
+        <div class="card shadow-sm mt-4" id="cleanupSection">
+            <div class="card-body">
+                <div class="accordion" id="cleanupAccordion">
+                    <div class="accordion-item border-0">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#cleanupCollapse">
+                                <i class="bi bi-folder2-open me-2"></i> Storage & Cleanup
+                            </button>
+                        </h2>
+                        <div id="cleanupCollapse" class="accordion-collapse collapse">
+                            <div class="accordion-body">
+                                <div class="row g-3 mb-3">
+                                    <div class="col-md-3 col-6">
+                                        <div class="text-muted small">📁 Total Files</div>
+                                        <div class="fw-bold fs-5" id="cleanupTotalFiles">-</div>
+                                    </div>
+                                    <div class="col-md-3 col-6">
+                                        <div class="text-muted small">💾 Storage Used</div>
+                                        <div class="fw-bold fs-5" id="cleanupStorageSize">-</div>
+                                    </div>
+                                    <div class="col-md-3 col-6">
+                                        <div class="text-muted small">⏰ Auto-cleanup</div>
+                                        <div class="fw-bold fs-5" id="cleanupEnabled">-</div>
+                                    </div>
+                                    <div class="col-md-3 col-6">
+                                        <div class="text-muted small">🕒 Last Cleanup</div>
+                                        <div class="fw-bold fs-5" id="cleanupLastRun">-</div>
+                                    </div>
+                                </div>
+                                
+                                <div class="d-flex gap-2 mb-3">
+                                    <button id="refreshCleanupBtn" class="btn btn-outline-secondary btn-sm">
+                                        <i class="bi bi-arrow-clockwise"></i> Refresh
+                                    </button>
+                                    <button id="cleanupNowBtn" class="btn btn-warning btn-sm">
+                                        <i class="bi bi-trash"></i> Clean Now
+                                    </button>
+                                </div>
+                                
+                                <small class="text-muted">
+                                    <i class="bi bi-info-circle"></i> Auto-cleanup deletes images older than <span id="cleanupDays">7</span> days every 6 hours
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer class="text-center text-muted py-4 mt-5">
+            <p class="mb-0">Powered by Google Gemini API (Nano Banana) | Made with ❤️</p>
+        </footer>
+    </div>
+
+    <!-- Toast Container (Bootstrap) -->
+    <div class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index: 9999;">
+        <div id="toast" class="toast custom-toast" role="alert" aria-live="assertive" aria-atomic="true" data-bs-autohide="true" data-bs-delay="4000">
+            <div class="toast-body d-flex align-items-center">
+                <i class="toast-icon me-3"></i>
+                <span class="me-auto toast-message" id="toastMessage"></span>
+                <button type="button" class="btn-close ms-3" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="modal fade" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content bg-transparent border-0">
+                <div class="modal-body text-center">
+                    <div class="spinner-border text-light mb-3" style="width: 4rem; height: 4rem;" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <p class="text-white fw-medium">Starting generation...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL" crossorigin="anonymous"></script>
+    
+    <!-- Custom JS -->
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>
