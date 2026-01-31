@@ -673,6 +673,35 @@ body[data-theme="dark"] .btn-primary:hover {
     filter: none;
 }
 
+/* btn-outline-primary - ใช้ธีมทั้ง Light/Dark (Save Preset, View, Rerun) */
+.btn-outline-primary {
+    border-color: var(--theme-accent);
+    color: var(--theme-accent);
+}
+
+.btn-outline-primary:hover {
+    background: var(--theme-accent-light);
+    border-color: var(--theme-accent);
+    color: var(--theme-accent);
+}
+
+body[data-theme="dark"] .btn-outline-primary {
+    border-color: var(--theme-accent);
+    color: var(--theme-accent);
+}
+
+body[data-theme="dark"] .btn-outline-primary:hover {
+    background: var(--theme-accent-light);
+    border-color: var(--theme-accent);
+    color: var(--theme-accent);
+}
+
+body[data-theme="dark"] .btn-outline-primary:disabled {
+    border-color: var(--theme-border);
+    color: var(--theme-text-muted);
+    opacity: 0.6;
+}
+
 .btn:hover {
     transform: translateY(-2px);
     box-shadow: 0 6px 20px var(--theme-shadow);
@@ -1061,6 +1090,23 @@ body[data-theme="dark"] .image-preview-prompt-block {
     opacity: 1;
 }
 
+/* ปุ่ม X ในโหมด dark ให้เป็นสีสว่าง อ่านเห็น */
+body[data-theme="dark"] .btn-close,
+body[data-theme="dark"] .btn-close-preview {
+    filter: invert(1);
+    opacity: 0.8;
+}
+
+body[data-theme="dark"] .btn-close:hover,
+body[data-theme="dark"] .btn-close-preview:hover {
+    opacity: 1;
+}
+
+/* Toast ใน dark mode ปุ่ม X สว่าง */
+body[data-theme="dark"] .custom-toast .btn-close {
+    filter: invert(1);
+}
+
 /* ===== History Preview Modal ===== */
 .history-preview-details {
     background: var(--theme-hover-bg);
@@ -1092,6 +1138,8 @@ body[data-theme="dark"] .image-preview-prompt-block {
     overflow: hidden;
     border: 2px solid var(--theme-border);
     transition: all 0.25s ease;
+    display: block;
+    line-height: 0;
 }
 
 .history-preview-images .history-preview-thumb:hover {
@@ -1101,9 +1149,9 @@ body[data-theme="dark"] .image-preview-prompt-block {
 
 .history-preview-images .history-preview-thumb img {
     width: 100%;
-    height: 120px;
-    object-fit: cover;
+    height: auto;
     display: block;
+    vertical-align: bottom;
 }
 
 /* ===== History Items - เพิ่มเติม ===== */
