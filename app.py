@@ -865,11 +865,14 @@ if __name__ == '__main__':
         print("[Auto-cleanup] Disabled")
     
     # Run app
+    port = int(os.environ.get('PORT', 5000))
+    debug = os.environ.get('FLASK_ENV') != 'production'
+    
     print("=" * 60)
     print("Starting Batch Image Generator...")
     print("=" * 60)
     print(f"Generated images will be saved to: {STATIC_FOLDER}")
-    print("Open your browser at: http://localhost:5000")
+    print(f"Server running on: http://0.0.0.0:{port}")
     print("=" * 60)
     
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(debug=debug, host='0.0.0.0', port=port)
