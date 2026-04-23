@@ -13,6 +13,26 @@ from typing import List, Dict, Callable, Optional
 from PIL import Image
 import google.generativeai as genai
 
+# Aspect ratio prompt prefixes (shared - avoid duplication)
+ASPECT_RATIO_PREFIXES = {
+    "21:9": "Create an image in 21:9 ultra-wide cinematic aspect ratio. ",
+    "16:9": "Create an image in 16:9 widescreen landscape aspect ratio. ",
+    "4:3": "Create an image in 4:3 standard landscape aspect ratio. ",
+    "3:2": "Create an image in 3:2 classic photo landscape aspect ratio. ",
+    "9:16": "Create an image in 9:16 vertical portrait aspect ratio. ",
+    "3:4": "Create an image in 3:4 portrait aspect ratio. ",
+    "2:3": "Create an image in 2:3 classic portrait aspect ratio. ",
+    "5:4": "Create an image in 5:4 almost square landscape aspect ratio. ",
+    "4:5": "Create an image in 4:5 almost square portrait aspect ratio. "
+}
+
+
+def get_aspect_ratio_prefix(aspect_ratio: str) -> str:
+    """Return prompt prefix for aspect ratio, or empty string for 1:1."""
+    if not aspect_ratio or aspect_ratio == "1:1":
+        return ""
+    return ASPECT_RATIO_PREFIXES.get(aspect_ratio, f"Create an image in {aspect_ratio} aspect ratio. ")
+
 
 class ImageGenerator:
     """Class สำหรับจัดการการสร้างรูปภาพด้วย Google Gemini API"""
@@ -74,7 +94,7 @@ class ImageGenerator:
     def _get_reference_type_hint(self, reference_type: str) -> str:
         """Get prompt hint based on reference type."""
         hints = {
-            "person": "Keep exactly the same person and face as in the reference image. ",
+            "person": "Keep the same person and face as in the reference image; pose and body position may change according to the prompt. ",
             "animal": "Keep exactly the same creature as in the reference image. ",
             "object": "Keep exactly the same object as in the reference image. "
         }
@@ -111,21 +131,7 @@ class ImageGenerator:
 
             # Build full prompt: hint + aspect + master + prompt + suffix + negative
             hint = self._get_reference_type_hint(reference_type) if reference_type else ""
-            aspect_prefix = ""
-            if aspect_ratio and aspect_ratio != "1:1":
-                aspect_map = {
-                    "21:9": "Create an image in 21:9 ultra-wide cinematic aspect ratio. ",
-                    "16:9": "Create an image in 16:9 widescreen landscape aspect ratio. ",
-                    "4:3": "Create an image in 4:3 standard landscape aspect ratio. ",
-                    "3:2": "Create an image in 3:2 classic photo landscape aspect ratio. ",
-                    "9:16": "Create an image in 9:16 vertical portrait aspect ratio. ",
-                    "3:4": "Create an image in 3:4 portrait aspect ratio. ",
-                    "2:3": "Create an image in 2:3 classic portrait aspect ratio. ",
-                    "5:4": "Create an image in 5:4 almost square landscape aspect ratio. ",
-                    "4:5": "Create an image in 4:5 almost square portrait aspect ratio. "
-                }
-                aspect_prefix = aspect_map.get(aspect_ratio, f"Create an image in {aspect_ratio} aspect ratio. ")
-
+            aspect_prefix = get_aspect_ratio_prefix(aspect_ratio or "1:1")
             full_prompt = f"{hint}{aspect_prefix}{master_prompts}{prompt}{suffix}"
             if negative_prompts:
                 full_prompt += f", avoid: {negative_prompts}"
@@ -385,7 +391,7 @@ class ImageGenerator:
                 executor.submit(gen_with_idx, idx, prompt): idx
                 for idx, prompt in enumerate(prompts)
             }
-            for future in as_completed(future_to_idx, timeout=2):
+            for future in as_completed(future_to_idx):
                 if cancel_check and cancel_check():
                     break
                 idx = future_to_idx[future]
@@ -458,27 +464,8 @@ class ImageGenerator:
             if cancel_check and cancel_check():
                 break
             
-            # สร้าง full_prompt: aspect_ratio_prefix + master_prompts + prompt + suffix + negative_prompts
-            # 1. เริ่มด้วย aspect ratio prefix
-            aspect_prefix = ""
-            if aspect_ratio and aspect_ratio != "1:1":
-                aspect_ratio_prefixes = {
-                    "21:9": "Create an image in 21:9 ultra-wide cinematic aspect ratio. ",
-                    "16:9": "Create an image in 16:9 widescreen landscape aspect ratio. ",
-                    "4:3": "Create an image in 4:3 standard landscape aspect ratio. ",
-                    "3:2": "Create an image in 3:2 classic photo landscape aspect ratio. ",
-                    "9:16": "Create an image in 9:16 vertical portrait aspect ratio. ",
-                    "3:4": "Create an image in 3:4 portrait aspect ratio. ",
-                    "2:3": "Create an image in 2:3 classic portrait aspect ratio. ",
-                    "5:4": "Create an image in 5:4 almost square landscape aspect ratio. ",
-                    "4:5": "Create an image in 4:5 almost square portrait aspect ratio. "
-                }
-                aspect_prefix = aspect_ratio_prefixes.get(aspect_ratio, f"Create an image in {aspect_ratio} aspect ratio. ")
-            
-            # 2. รวม: aspect_prefix + master_prompts + prompt + suffix
+            aspect_prefix = get_aspect_ratio_prefix(aspect_ratio or "1:1")
             full_prompt = f"{aspect_prefix}{master_prompts}{prompt}{suffix}"
-            
-            # 3. เพิ่ม negative prompts ท้ายสุด
             if negative_prompts:
                 full_prompt += f", avoid: {negative_prompts}"
             full_prompt = full_prompt.strip()
@@ -563,27 +550,8 @@ class ImageGenerator:
             if cancel_check and cancel_check():
                 return idx, {"status": "cancelled", "prompt": "", "filename": None, "error": "Cancelled"}
             
-            # สร้าง full_prompt: aspect_ratio_prefix + master_prompts + prompt + suffix + negative_prompts
-            # 1. เริ่มด้วย aspect ratio prefix
-            aspect_prefix = ""
-            if aspect_ratio and aspect_ratio != "1:1":
-                aspect_ratio_prefixes = {
-                    "21:9": "Create an image in 21:9 ultra-wide cinematic aspect ratio. ",
-                    "16:9": "Create an image in 16:9 widescreen landscape aspect ratio. ",
-                    "4:3": "Create an image in 4:3 standard landscape aspect ratio. ",
-                    "3:2": "Create an image in 3:2 classic photo landscape aspect ratio. ",
-                    "9:16": "Create an image in 9:16 vertical portrait aspect ratio. ",
-                    "3:4": "Create an image in 3:4 portrait aspect ratio. ",
-                    "2:3": "Create an image in 2:3 classic portrait aspect ratio. ",
-                    "5:4": "Create an image in 5:4 almost square landscape aspect ratio. ",
-                    "4:5": "Create an image in 4:5 almost square portrait aspect ratio. "
-                }
-                aspect_prefix = aspect_ratio_prefixes.get(aspect_ratio, f"Create an image in {aspect_ratio} aspect ratio. ")
-            
-            # 2. รวม: aspect_prefix + master_prompts + prompt + suffix
+            aspect_prefix = get_aspect_ratio_prefix(aspect_ratio or "1:1")
             full_prompt = f"{aspect_prefix}{master_prompts}{prompt}{suffix}"
-            
-            # 3. เพิ่ม negative prompts ท้ายสุด
             if negative_prompts:
                 full_prompt += f", avoid: {negative_prompts}"
             full_prompt = full_prompt.strip()
@@ -615,7 +583,7 @@ class ImageGenerator:
                 for idx, prompt in enumerate(prompts)
             }
             
-            for future in as_completed(future_to_idx, timeout=2):
+            for future in as_completed(future_to_idx):
                 if cancel_check and cancel_check():
                     break
                 idx = future_to_idx[future]

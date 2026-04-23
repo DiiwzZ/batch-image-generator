@@ -3,16 +3,18 @@ Batch Image Generator - Flask Web Application
 Web app สำหรับสร้างรูปภาพอัตโนมัติจาก prompts หลายๆ อัน
 """
 
+import base64
+import json
 import os
-import uuid
-import zipfile
 import threading
 import time
-import json
+import uuid
+import zipfile
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from flask import Flask, render_template, request, jsonify, send_file, send_from_directory
 from dotenv import load_dotenv
-from image_generator import ImageGenerator
+from image_generator import ImageGenerator, get_aspect_ratio_prefix
 
 # Load environment variables
 load_dotenv()
@@ -49,6 +51,26 @@ os.makedirs(DATA_FOLDER, exist_ok=True)
 # In-memory storage สำหรับ job tracking
 jobs = {}
 jobs_lock = threading.Lock()
+
+
+def get_json_payload():
+    """Return request JSON only when the body is a JSON object."""
+    data = request.get_json(silent=True)
+    return data if isinstance(data, dict) else None
+
+
+def normalize_model_name(model: str) -> str:
+    """Accept model names with or without the models/ prefix."""
+    if model in ["gemini-2.5-flash-image", "gemini-3-pro-image-preview"]:
+        return f"models/{model}"
+    return model
+
+
+def validate_model_aspect_ratio(model: str, aspect_ratio: str):
+    """Non-Pro image model only supports the default square aspect ratio."""
+    if model != ImageGenerator.MODEL_NANO_BANANA_PRO and aspect_ratio != "1:1":
+        return "Aspect ratio other than 1:1 requires Nano Banana Pro"
+    return None
 
 # Job History Functions
 def load_history():
@@ -101,6 +123,7 @@ def add_to_history(job):
             'success_count': len(completed_results),
             'has_reference': job.get('has_reference', False),
             'reference_type': job.get('reference_type', ''),
+            'character_consistency': job.get('character_consistency', False),
             'results': [{'filename': r['filename'], 'prompt': r.get('prompt', '')} for r in completed_results]
         }
         
@@ -113,7 +136,7 @@ def add_to_history(job):
         print(f"Error adding to history: {e}")
 
 
-def create_job(prompts: list, model: str, mode: str, master_prompts: str = "", suffix: str = "", negative_prompts: str = "", aspect_ratio: str = "1:1", has_reference: bool = False, reference_type: str = "") -> str:
+def create_job(prompts: list, model: str, mode: str, master_prompts: str = "", suffix: str = "", negative_prompts: str = "", aspect_ratio: str = "1:1", has_reference: bool = False, reference_type: str = "", character_consistency: bool = False) -> str:
     """สร้าง job ใหม่และ return job_id"""
     job_id = str(uuid.uuid4())
 
@@ -139,6 +162,8 @@ def create_job(prompts: list, model: str, mode: str, master_prompts: str = "", s
     if has_reference:
         job_data['has_reference'] = True
         job_data['reference_type'] = reference_type
+    if character_consistency:
+        job_data['character_consistency'] = True
 
     with jobs_lock:
         jobs[job_id] = job_data
@@ -203,9 +228,75 @@ def process_generation(job_id: str, api_key: str):
         
         # Timeout ต่อ 1 รูป (วินาที) - ป้องกันรูปเดียวค้างแล้วบล็อกทั้งหมด
         timeout_per_image = 120
-        
+
+        # Character consistency: รูป 1 สร้างปกติ รูปถัดไปใช้รูป 1 เป็น reference
+        if job.get('character_consistency') and len(prompts) >= 2:
+            # รูป 1: generate_single
+            aspect_prefix = get_aspect_ratio_prefix(aspect_ratio or "1:1")
+            full_prompt_1 = f"{aspect_prefix}{master_prompts}{prompts[0]}{suffix}"
+            if negative_prompts:
+                full_prompt_1 += f", avoid: {negative_prompts}"
+            full_prompt_1 = full_prompt_1.strip()
+
+            executor = ThreadPoolExecutor(max_workers=1)
+            future = executor.submit(image_generator.generate_single, prompt=full_prompt_1, model=model, filename_prefix="batch_1", aspect_ratio=aspect_ratio)
+            result1 = None
+            try:
+                result1 = future.result(timeout=timeout_per_image)
+            except FuturesTimeoutError:
+                result1 = {'status': 'failed', 'prompt': full_prompt_1, 'filename': None, 'error': f'Timeout after {timeout_per_image}s', 'model': model, 'timestamp': datetime.now().isoformat()}
+            finally:
+                executor.shutdown(wait=False)
+
+            progress_callback(1, len(prompts), result1)
+
+            if cancel_check and cancel_check():
+                pass  # จะเติม cancelled ในบล็อกด้านล่าง
+            elif result1.get('status') == 'completed' and result1.get('filename'):
+                # อ่านรูป 1 เป็น reference
+                img1_path = os.path.join(STATIC_FOLDER, result1['filename'])
+                try:
+                    with open(img1_path, 'rb') as f:
+                        ref_bytes = f.read()
+                except Exception as e:
+                    print(f"[Job {job_id[:8]}] Failed to read image 1: {e}")
+                    for i in range(1, len(prompts)):
+                        full_p = f"{master_prompts}{prompts[i]}{suffix}"
+                        if negative_prompts:
+                            full_p += f", avoid: {negative_prompts}"
+                        update_job_progress(job_id, i + 1, len(prompts), {
+                            'status': 'failed', 'prompt': full_p.strip(), 'filename': None, 'error': str(e), 'model': model, 'timestamp': datetime.now().isoformat()
+                        })
+                else:
+                    # รูป 2..N: generate_single_with_reference
+                    for idx in range(1, len(prompts)):
+                        if cancel_check and cancel_check():
+                            break
+                        result = image_generator.generate_single_with_reference(
+                            prompt=prompts[idx],
+                            reference_image_bytes=ref_bytes,
+                            mime_type='image/png',
+                            reference_type='person',
+                            model=model,
+                            filename_prefix=f"batch_{idx + 1}",
+                            aspect_ratio=aspect_ratio,
+                            master_prompts=master_prompts,
+                            suffix=suffix,
+                            negative_prompts=negative_prompts
+                        )
+                        progress_callback(idx + 1, len(prompts), result)
+            else:
+                # รูป 1 fail - เติมรูปถัดไปเป็น failed
+                for i in range(1, len(prompts)):
+                    full_p = f"{master_prompts}{prompts[i]}{suffix}"
+                    if negative_prompts:
+                        full_p += f", avoid: {negative_prompts}"
+                    update_job_progress(job_id, i + 1, len(prompts), {
+                        'status': 'failed', 'prompt': full_p.strip(), 'filename': None, 'error': 'First image failed - no reference', 'model': model, 'timestamp': datetime.now().isoformat()
+                    })
+
         # Generate based on mode
-        if mode == 'sequential':
+        elif mode == 'sequential':
             image_generator.generate_batch_sequential(
                 prompts=prompts,
                 model=model,
@@ -392,7 +483,9 @@ def analyze_reference_type():
     Response: { "success": true, "type": "person" | "animal" | "object" }
     """
     try:
-        data = request.get_json()
+        data = get_json_payload()
+        if not data:
+            return jsonify({'success': False, 'error': 'JSON body is required'}), 400
         api_key = data.get('api_key', '').strip()
         if not api_key:
             return jsonify({'success': False, 'error': 'API key is required'}), 400
@@ -405,7 +498,6 @@ def analyze_reference_type():
         if len(parts) != 2:
             return jsonify({'success': False, 'error': 'Invalid base64 image data'}), 400
 
-        import base64
         mime_part = parts[0]
         if 'image/' in mime_part:
             mime_type = 'image/jpeg'
@@ -450,7 +542,9 @@ def validate_key():
     }
     """
     try:
-        data = request.get_json()
+        data = get_json_payload()
+        if not data:
+            return jsonify({'valid': False, 'error': 'JSON body is required'}), 400
         api_key = data.get('api_key', '').strip()
         
         if not api_key:
@@ -463,9 +557,7 @@ def validate_key():
         try:
             import google.generativeai as genai
             genai.configure(api_key=api_key)
-            # ลองเรียก API เพื่อเช็คว่า key ใช้งานได้
-            models = genai.list_models()
-            # ถ้าถึงจุดนี้แสดงว่า API key ใช้งานได้
+            list(genai.list_models())  # validate API key by calling API
             return jsonify({
                 'valid': True,
                 'message': 'API key is valid'
@@ -514,7 +606,12 @@ def generate():
     }
     """
     try:
-        data = request.get_json()
+        data = get_json_payload()
+        if not data:
+            return jsonify({
+                'success': False,
+                'error': 'JSON body is required'
+            }), 400
         
         # Validate API key
         api_key = data.get('api_key', '').strip()
@@ -553,11 +650,16 @@ def generate():
         # Get parameters
         model = data.get('model', ImageGenerator.MODEL_NANO_BANANA)
         mode = data.get('mode', 'sequential')
+        character_consistency = bool(data.get('character_consistency', False))
         master_prompts = data.get('master_prompts', data.get('prefix', ''))  # รองรับทั้งชื่อเก่า/ใหม่
         suffix = data.get('suffix', '')
         negative_prompts = data.get('negative_prompts', '')
         aspect_ratio = data.get('aspect_ratio', '1:1')
-        
+
+        # Character consistency requires sequential mode
+        if character_consistency:
+            mode = 'sequential'
+
         # Validate model (accept both with and without 'models/' prefix)
         valid_models = [
             ImageGenerator.MODEL_NANO_BANANA, 
@@ -567,18 +669,21 @@ def generate():
         ]
         
         # Add 'models/' prefix if not present
-        if model in ["gemini-2.5-flash-image", "gemini-3-pro-image-preview"]:
-            model = f"models/{model}"
+        model = normalize_model_name(model)
         
         if model not in valid_models:
             model = ImageGenerator.MODEL_NANO_BANANA
+
+        aspect_error = validate_model_aspect_ratio(model, aspect_ratio)
+        if aspect_error:
+            return jsonify({'success': False, 'error': aspect_error}), 400
         
         # Validate mode
         if mode not in ['sequential', 'parallel']:
             mode = 'sequential'
         
         # Create job
-        job_id = create_job(prompts, model, mode, master_prompts, suffix, negative_prompts, aspect_ratio)
+        job_id = create_job(prompts, model, mode, master_prompts, suffix, negative_prompts, aspect_ratio, character_consistency=character_consistency)
         
         # Start background processing (ส่ง api_key เข้าไปด้วย)
         thread = threading.Thread(target=process_generation, args=(job_id, api_key))
@@ -607,7 +712,9 @@ def generate_with_reference():
                  prompts, model, mode, master_prompts, suffix, negative_prompts, aspect_ratio
     """
     try:
-        data = request.get_json()
+        data = get_json_payload()
+        if not data:
+            return jsonify({'success': False, 'error': 'JSON body is required'}), 400
         api_key = data.get('api_key', '').strip()
         if not api_key:
             return jsonify({'success': False, 'error': 'API key is required'}), 400
@@ -634,7 +741,6 @@ def generate_with_reference():
         if len(parts) != 2:
             return jsonify({'success': False, 'error': 'Invalid base64 image data'}), 400
 
-        import base64
         mime_part = parts[0]
         mime_type = 'image/jpeg'
         if 'png' in mime_part:
@@ -660,12 +766,14 @@ def generate_with_reference():
         if reference_type not in ('person', 'animal', 'object'):
             reference_type = ''
 
-        if model in ["gemini-2.5-flash-image", "gemini-3-pro-image-preview"]:
-            model = f"models/{model}"
+        model = normalize_model_name(model)
         valid_models = [ImageGenerator.MODEL_NANO_BANANA, ImageGenerator.MODEL_NANO_BANANA_PRO,
                        "models/gemini-2.5-flash-image", "models/gemini-3-pro-image-preview"]
         if model not in valid_models:
             model = ImageGenerator.MODEL_NANO_BANANA
+        aspect_error = validate_model_aspect_ratio(model, aspect_ratio)
+        if aspect_error:
+            return jsonify({'success': False, 'error': aspect_error}), 400
         if mode not in ['sequential', 'parallel']:
             mode = 'sequential'
 
@@ -1018,7 +1126,12 @@ def rerun_job(job_id):
     """รีรัน job เก่า (ใช้ settings เดิม แต่สร้าง job ใหม่)"""
     try:
         # ต้องมี API key
-        data = request.get_json()
+        data = get_json_payload()
+        if not data:
+            return jsonify({
+                'success': False,
+                'error': 'JSON body is required'
+            }), 400
         api_key = data.get('api_key', '').strip()
         if not api_key:
             return jsonify({
@@ -1044,7 +1157,8 @@ def rerun_job(job_id):
             master_prompts=old_job.get('master_prompts', ''),
             suffix=old_job.get('suffix', ''),
             negative_prompts=old_job.get('negative_prompts', ''),
-            aspect_ratio=old_job.get('aspect_ratio', '1:1')
+            aspect_ratio=old_job.get('aspect_ratio', '1:1'),
+            character_consistency=old_job.get('character_consistency', False)
         )
         
         # Start background processing

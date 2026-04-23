@@ -33,6 +33,19 @@ const promptCount = document.getElementById('promptCount');
 const modelSelect = document.getElementById('modelSelect');
 const modeSelect = document.getElementById('modeSelect');
 const aspectRatioSelect = document.getElementById('aspectRatioSelect');
+const aspectRatioDropdownBtn = document.getElementById('aspectRatioDropdownBtn');
+const aspectRatioDropdownMenu = document.getElementById('aspectRatioDropdownMenu');
+const customAspectRatioInput = document.getElementById('customAspectRatioInput');
+const customAspectRatioWidth = document.getElementById('customAspectRatioWidth');
+const customAspectRatioHeight = document.getElementById('customAspectRatioHeight');
+const customAspectRatioUnitSelect = document.getElementById('customAspectRatioUnitSelect');
+const customAspectRatioLockBtn = document.getElementById('customAspectRatioLockBtn');
+const customAspectRatioLockIcon = document.getElementById('customAspectRatioLockIcon');
+const customAspectRatioError = document.getElementById('customAspectRatioError');
+
+// Custom aspect ratio lock state
+let customAspectRatioLocked = false;
+let lockedAspectRatio = null;
 const masterPromptsInput = document.getElementById('masterPromptsInput');
 const suffixInput = document.getElementById('suffixInput');
 const negativePromptsInput = document.getElementById('negativePromptsInput');
@@ -49,6 +62,10 @@ const deletePresetModal = document.getElementById('deletePresetModal');
 const deletePresetName = document.getElementById('deletePresetName');
 const deletePresetConfirmBtn = document.getElementById('deletePresetConfirmBtn');
 const generateBtn = document.getElementById('generateBtn');
+const variationsPerPromptSelect = document.getElementById('variationsPerPrompt');
+const variationsDropdownBtn = document.getElementById('variationsDropdownBtn');
+const variationsDropdownLabel = document.getElementById('variationsDropdownLabel');
+const variationsDropdownMenu = document.getElementById('variationsDropdownMenu');
 const clearBtn = document.getElementById('clearBtn');
 
 const progressSection = document.getElementById('progressSection');
@@ -74,6 +91,8 @@ const loadingOverlay = document.getElementById('loadingOverlay');
 const historySection = document.getElementById('historySection');
 const historyList = document.getElementById('historyList');
 const historyEmpty = document.getElementById('historyEmpty');
+const historyToggleContainer = document.getElementById('historyToggleContainer');
+const historyToggleBtn = document.getElementById('historyToggleBtn');
 const refreshHistoryBtn = document.getElementById('refreshHistoryBtn');
 const deleteAllHistoryBtn = document.getElementById('deleteAllHistoryBtn');
 
@@ -95,6 +114,10 @@ const analyzeRefTypeBtn = document.getElementById('analyzeRefTypeBtn');
 const promptsContainerRef = document.getElementById('promptsContainerRef');
 const addPromptBtnRef = document.getElementById('addPromptBtnRef');
 const promptCountRef = document.getElementById('promptCountRef');
+const characterConsistencyCheck = document.getElementById('characterConsistencyCheck');
+const characterConsistencyWrap = document.getElementById('characterConsistencyWrap');
+const modeDropdownBtn = document.getElementById('modeDropdownBtn');
+const modeDropdownMenu = document.getElementById('modeDropdownMenu');
 
 // Reference type presets: { master, negative }
 const REFERENCE_TYPE_PRESETS = {
@@ -115,6 +138,12 @@ const cleanupLastRun = document.getElementById('cleanupLastRun');
 const cleanupDays = document.getElementById('cleanupDays');
 const refreshCleanupBtn = document.getElementById('refreshCleanupBtn');
 const cleanupNowBtn = document.getElementById('cleanupNowBtn');
+
+// History list state
+const MAX_HISTORY_ITEMS_COLLAPSED = 5;
+let historyJobsAll = [];
+let historyExpanded = false;
+const historyDayCollapsed = {};
 
 // ===== API Key Functions =====
 
@@ -170,12 +199,15 @@ function switchMode(mode) {
         modeReference.style.display = 'none';
         modeTextOnlyBtn?.classList.add('active');
         modeReferenceBtn?.classList.remove('active');
+        if (characterConsistencyWrap) characterConsistencyWrap.style.display = 'block';
     } else {
         modeTextOnly.style.display = 'none';
         modeReference.style.display = 'block';
         modeTextOnlyBtn?.classList.remove('active');
         modeReferenceBtn?.classList.add('active');
+        if (characterConsistencyWrap) characterConsistencyWrap.style.display = 'none';
     }
+    updatePromptCount();
 }
 
 // ===== Reference Upload =====
@@ -730,6 +762,22 @@ function resetAspectRatioTo1x1() {
     if (aspectRatioBtnValue) {
         aspectRatioBtnValue.innerHTML = '<span class="ratio-preview ratio-1-1"></span><span class="ratio-text">1:1 Square</span>';
     }
+    
+    // Hide custom input if visible
+    if (customAspectRatioInput) customAspectRatioInput.style.display = 'none';
+    if (customAspectRatioWidth) customAspectRatioWidth.value = '';
+    if (customAspectRatioHeight) customAspectRatioHeight.value = '';
+    if (customAspectRatioError) customAspectRatioError.style.display = 'none';
+    
+    // Reset lock state
+    customAspectRatioLocked = false;
+    lockedAspectRatio = null;
+    if (customAspectRatioLockIcon) customAspectRatioLockIcon.className = 'bi bi-unlock';
+    if (customAspectRatioLockBtn) {
+        customAspectRatioLockBtn.title = 'Lock aspect ratio';
+        customAspectRatioLockBtn.classList.remove('btn-secondary');
+        customAspectRatioLockBtn.classList.add('btn-outline-secondary');
+    }
 }
 
 /**
@@ -742,6 +790,7 @@ function updateAspectRatioAvailability() {
     const currentModel = modelSelect.value;
     const isPro = currentModel.includes('pro');
     const aspectRatioItems = document.querySelectorAll('#aspectRatioDropdownMenu .dropdown-item[data-requires-pro]');
+    const customItem = document.querySelector('#aspectRatioDropdownMenu .dropdown-item[data-value="custom"]');
     
     aspectRatioItems.forEach(item => {
         if (isPro) {
@@ -754,6 +803,187 @@ function updateAspectRatioAvailability() {
             item.style.pointerEvents = 'none';
         }
     });
+    
+    // Custom option: ใช้ได้เฉพาะ Pro model
+    if (customItem) {
+        if (isPro) {
+            customItem.classList.remove('disabled');
+            customItem.style.pointerEvents = 'auto';
+        } else {
+            customItem.classList.add('disabled');
+            customItem.style.pointerEvents = 'none';
+            
+            // ถ้าเลือก Custom อยู่และเปลี่ยนเป็น Fast → reset เป็น 1:1
+            if (aspectRatioSelect?.value === 'custom') {
+                resetAspectRatioTo1x1();
+            }
+        }
+    }
+}
+
+/**
+ * คำนวณ GCD (Greatest Common Divisor)
+ */
+function gcd(a, b) {
+    a = Math.abs(a);
+    b = Math.abs(b);
+    while (b !== 0) {
+        const temp = b;
+        b = a % b;
+        a = temp;
+    }
+    return a;
+}
+
+/**
+ * Toggle aspect ratio lock
+ */
+function toggleAspectRatioLock() {
+    if (!customAspectRatioLockBtn || !customAspectRatioLockIcon) return;
+    
+    const w = customAspectRatioWidth?.value?.trim();
+    const h = customAspectRatioHeight?.value?.trim();
+    
+    if (!w || !h) {
+        showToast('Please enter both width and height before locking', 'warning');
+        return;
+    }
+    
+    const width = parseFloat(w);
+    const height = parseFloat(h);
+    
+    if (isNaN(width) || isNaN(height) || width <= 0 || height <= 0) {
+        showToast('Please enter valid width and height', 'warning');
+        return;
+    }
+    
+    customAspectRatioLocked = !customAspectRatioLocked;
+    
+    if (customAspectRatioLocked) {
+        // Lock: คำนวณและเก็บ ratio
+        lockedAspectRatio = width / height;
+        customAspectRatioLockIcon.className = 'bi bi-lock-fill';
+        customAspectRatioLockBtn.title = 'Unlock aspect ratio';
+        customAspectRatioLockBtn.classList.remove('btn-outline-secondary');
+        customAspectRatioLockBtn.classList.add('btn-secondary');
+    } else {
+        // Unlock: clear ratio
+        lockedAspectRatio = null;
+        customAspectRatioLockIcon.className = 'bi bi-unlock';
+        customAspectRatioLockBtn.title = 'Lock aspect ratio';
+        customAspectRatioLockBtn.classList.remove('btn-secondary');
+        customAspectRatioLockBtn.classList.add('btn-outline-secondary');
+    }
+}
+
+/**
+ * Update aspect ratio when locked (auto calculate opposite dimension)
+ */
+function updateAspectRatioFromLock(changedField) {
+    if (!customAspectRatioLocked || lockedAspectRatio === null) return;
+    
+    const w = customAspectRatioWidth?.value?.trim();
+    const h = customAspectRatioHeight?.value?.trim();
+    const unit = customAspectRatioUnitSelect?.value || 'px';
+    
+    if (changedField === 'width' && w) {
+        const width = parseFloat(w);
+        if (!isNaN(width) && width > 0) {
+            let newHeight = Math.round(width / lockedAspectRatio);
+            
+            // Validate range สำหรับ px
+            if (unit === 'px') {
+                if (newHeight < 64) {
+                    newHeight = 64;
+                    // Auto-adjust width to maintain ratio
+                    const adjustedWidth = Math.round(newHeight * lockedAspectRatio);
+                    if (customAspectRatioWidth) customAspectRatioWidth.value = adjustedWidth;
+                } else if (newHeight > 8192) {
+                    newHeight = 8192;
+                    // Auto-adjust width to maintain ratio
+                    const adjustedWidth = Math.round(newHeight * lockedAspectRatio);
+                    if (customAspectRatioWidth) customAspectRatioWidth.value = adjustedWidth;
+                }
+            }
+            
+            if (customAspectRatioHeight) {
+                customAspectRatioHeight.value = newHeight;
+                updateCustomAspectRatio();
+            }
+        }
+    } else if (changedField === 'height' && h) {
+        const height = parseFloat(h);
+        if (!isNaN(height) && height > 0) {
+            let newWidth = Math.round(height * lockedAspectRatio);
+            
+            // Validate range สำหรับ px
+            if (unit === 'px') {
+                if (newWidth < 64) {
+                    newWidth = 64;
+                    // Auto-adjust height to maintain ratio
+                    const adjustedHeight = Math.round(newWidth / lockedAspectRatio);
+                    if (customAspectRatioHeight) customAspectRatioHeight.value = adjustedHeight;
+                } else if (newWidth > 8192) {
+                    newWidth = 8192;
+                    // Auto-adjust height to maintain ratio
+                    const adjustedHeight = Math.round(newWidth / lockedAspectRatio);
+                    if (customAspectRatioHeight) customAspectRatioHeight.value = adjustedHeight;
+                }
+            }
+            
+            if (customAspectRatioWidth) {
+                customAspectRatioWidth.value = newWidth;
+                updateCustomAspectRatio();
+            }
+        }
+    }
+}
+
+/**
+ * Parse custom aspect ratio จาก width และ height inputs
+ * Returns: { success: boolean, ratio: string, error: string }
+ */
+function parseCustomAspectRatio() {
+    const w = customAspectRatioWidth?.value?.trim();
+    const h = customAspectRatioHeight?.value?.trim();
+    const unit = customAspectRatioUnitSelect?.value || 'px';
+    
+    if (!w || !h) {
+        return { success: false, ratio: null, error: 'Please enter both width and height' };
+    }
+    
+    const width = parseFloat(w);
+    const height = parseFloat(h);
+    
+    if (isNaN(width) || isNaN(height)) {
+        return { success: false, ratio: null, error: 'Width and height must be numbers' };
+    }
+    
+    if (width <= 0 || height <= 0) {
+        return { success: false, ratio: null, error: 'Width and height must be positive' };
+    }
+    
+    // สำหรับ px: validate range 64-8192
+    // สำหรับ em/rem: ไม่มี range limit แต่ต้องเป็นบวก
+    if (unit === 'px') {
+        if (width < 64 || width > 8192 || height < 64 || height > 8192) {
+            return { success: false, ratio: null, error: 'Dimensions must be between 64 and 8192 pixels' };
+        }
+    }
+    
+    // แปลงเป็น ratio โดยใช้ GCD (ใช้ค่าที่เป็นจำนวนเต็ม)
+    const widthInt = Math.round(width);
+    const heightInt = Math.round(height);
+    const gcdValue = gcd(widthInt, heightInt);
+    const ratioW = widthInt / gcdValue;
+    const ratioH = heightInt / gcdValue;
+    
+    const ratio = ratioW / ratioH;
+    if (ratio < 0.1 || ratio > 10) {
+        return { success: false, ratio: null, error: 'Aspect ratio must be between 0.1 and 10' };
+    }
+    
+    return { success: true, ratio: `${ratioW}:${ratioH}`, error: null };
 }
 
 /**
@@ -779,6 +1009,27 @@ function updatePromptCount() {
     const countEl = getCurrentMode() === 'reference' ? promptCountRef : promptCount;
     const prompts = parsePrompts();
     if (countEl) countEl.textContent = prompts.length;
+    updateVariationsDropdownState(prompts.length);
+}
+
+/**
+ * Enable/disable variations dropdown based on prompt count (only enabled when exactly 1 prompt)
+ */
+function updateVariationsDropdownState(promptCount) {
+    if (!variationsDropdownBtn) return;
+    const disabled = promptCount !== 1;
+    variationsDropdownBtn.disabled = disabled;
+    variationsDropdownBtn.title = disabled
+        ? 'Only when 1 prompt'
+        : 'Images (when 1 prompt)';
+
+    if (disabled) {
+        if (variationsPerPromptSelect) variationsPerPromptSelect.value = '1';
+        if (variationsDropdownLabel) variationsDropdownLabel.textContent = '1';
+        variationsDropdownMenu?.querySelectorAll('.dropdown-item').forEach(item => {
+            item.classList.toggle('active', item.dataset.value === '1');
+        });
+    }
 }
 
 /**
@@ -941,10 +1192,30 @@ async function startGeneration() {
         return;
     }
 
-    const prompts = parsePrompts();
+    let prompts = parsePrompts();
     if (prompts.length === 0) {
         showToast('Please enter at least 1 prompt', 'warning');
         return;
+    }
+
+    // ขยาย prompts ตามจำนวนรูปต่อ prompt ที่เลือก (1 prompt → N รูปหลายแบบ)
+    const selectedVariations = Math.max(1, parseInt(variationsPerPromptSelect?.value || '1', 10) || 1);
+    const variations = prompts.length === 1 ? selectedVariations : 1;
+    if (variations > 1) {
+        const confirmed = await showConfirmModal(
+            'Confirm variations',
+            `Generate ${variations} different images from the same prompt? This will create ${variations} images total.`,
+            'Yes',
+            'btn-primary',
+            'bi-layers'
+        );
+        if (!confirmed) return;
+
+        const expanded = [];
+        prompts.forEach(p => {
+            for (let i = 0; i < variations; i++) expanded.push(p);
+        });
+        prompts = expanded;
     }
 
     const isReferenceMode = getCurrentMode() === 'reference';
@@ -953,15 +1224,44 @@ async function startGeneration() {
         return;
     }
 
+    const charConsistency = !isReferenceMode && characterConsistencyCheck?.checked;
+    let mode = modeSelect.value;
+    if (charConsistency) mode = 'sequential';
+
+    // Validate and get aspect ratio (handle custom)
+    let aspectRatio = aspectRatioSelect.value;
+    if (aspectRatio === 'custom') {
+        // ตรวจสอบว่าเป็น Pro model หรือไม่
+        const isPro = modelSelect.value.includes('pro');
+        if (!isPro) {
+            showToast('Custom aspect ratio only works with Pro model', 'warning');
+            resetAspectRatioTo1x1();
+            return;
+        }
+        
+        const parsed = parseCustomAspectRatio();
+        if (!parsed.success) {
+            showToast(`Invalid aspect ratio: ${parsed.error}`, 'error');
+            if (customAspectRatioError) {
+                customAspectRatioError.textContent = parsed.error;
+                customAspectRatioError.style.display = 'block';
+            }
+            if (customAspectRatioWidth) customAspectRatioWidth.focus();
+            return;
+        }
+        aspectRatio = parsed.ratio;
+    }
+
     const data = {
         api_key: apiKey,
         prompts: prompts,
         model: modelSelect.value,
-        mode: modeSelect.value,
-        aspect_ratio: aspectRatioSelect.value,
+        mode: mode,
+        aspect_ratio: aspectRatio,
         master_prompts: masterPromptsInput.value.trim(),
         suffix: suffixInput.value.trim(),
-        negative_prompts: negativePromptsInput.value.trim()
+        negative_prompts: negativePromptsInput.value.trim(),
+        character_consistency: charConsistency
     };
 
     if (isReferenceMode) {
@@ -1323,7 +1623,10 @@ async function fetchHistory() {
         const result = await response.json();
         
         if (result.success) {
-            renderHistory(result.jobs || []);
+            historyJobsAll = result.jobs || [];
+            // รีเซ็ตสถานะเป็นแบบย่อทุกครั้งที่โหลดใหม่
+            historyExpanded = false;
+            renderHistory();
         }
     } catch (error) {
         console.error('Failed to fetch history:', error);
@@ -1333,21 +1636,146 @@ async function fetchHistory() {
 /**
  * Render history list
  */
-function renderHistory(jobs) {
+function renderHistory() {
+    if (!historyList || !historyEmpty) return;
+    
+    const jobs = historyJobsAll || [];
     if (!historyList || !historyEmpty) return;
     
     historyList.innerHTML = '';
     
     if (jobs.length === 0) {
         historyEmpty.style.display = 'block';
+        const summaryEl = document.getElementById('historySummary');
+        const totalPromptsEl = document.getElementById('historyTotalPrompts');
+        const totalImagesEl = document.getElementById('historyTotalImages');
+        if (summaryEl) summaryEl.style.display = 'none';
+        if (totalPromptsEl) totalPromptsEl.textContent = '0';
+        if (totalImagesEl) totalImagesEl.textContent = '0';
         return;
     }
-    
+
     historyEmpty.style.display = 'none';
-    
+
+    // จัดกลุ่มตามวัน + นับรวมทั้งหมด
+    let totalPromptsAll = 0;
+    let totalImagesAll = 0;
+    const groupsByDate = {};
     jobs.forEach(job => {
-        const item = document.createElement('div');
-        item.className = 'list-group-item list-group-item-action';
+        const promptsCount = job.total || (job.prompts ? job.prompts.length : 0);
+        const imagesCount = job.success_count ?? job.completed ?? 0;
+
+        totalPromptsAll += promptsCount;
+        totalImagesAll += imagesCount;
+
+        const d = new Date(job.created_at);
+        const dateKey = d.toISOString().slice(0, 10); // YYYY-MM-DD
+        const dateLabel = d.toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric'
+        });
+
+        if (!groupsByDate[dateKey]) {
+            groupsByDate[dateKey] = {
+                label: dateLabel,
+                jobs: [],
+                prompts: 0,
+                images: 0
+            };
+        }
+        const group = groupsByDate[dateKey];
+        group.jobs.push(job);
+        group.prompts += promptsCount;
+        group.images += imagesCount;
+    });
+
+    const dateKeysSorted = Object.keys(groupsByDate).sort((a, b) => b.localeCompare(a)); // ใหม่ → เก่า
+
+    const summaryEl = document.getElementById('historySummary');
+    const totalPromptsEl = document.getElementById('historyTotalPrompts');
+    const totalImagesEl = document.getElementById('historyTotalImages');
+    if (summaryEl) summaryEl.style.display = 'block';
+    if (totalPromptsEl) totalPromptsEl.textContent = totalPromptsAll;
+    if (totalImagesEl) totalImagesEl.textContent = totalImagesAll;
+
+    // สรุปรวมแยกตามวัน (ใต้ summary)
+    if (summaryEl) {
+        let dailyContainer = document.getElementById('historyDailySummary');
+        if (!dailyContainer) {
+            dailyContainer = document.createElement('div');
+            dailyContainer.id = 'historyDailySummary';
+            dailyContainer.className = 'small text-muted mt-1';
+            summaryEl.appendChild(dailyContainer);
+        }
+        const dailyEntries = dateKeysSorted.map(key => groupsByDate[key]);
+        dailyContainer.innerHTML = dailyEntries
+            .map(d => `${d.label}: ${d.prompts} prompts · ${d.images} images`)
+            .join('<br>');
+    }
+
+    // จัดการปุ่ม Show more / Show less ตามจำนวน jobs ทั้งหมด
+    if (historyToggleContainer && historyToggleBtn) {
+        if (jobs.length > MAX_HISTORY_ITEMS_COLLAPSED) {
+            historyToggleContainer.style.display = 'block';
+        } else {
+            historyToggleContainer.style.display = 'none';
+        }
+    }
+
+    // คำนวณ jobs ที่จะแสดงจริงตามโหมดย่อ/ขยาย
+    let remainingVisible = historyExpanded ? Infinity : MAX_HISTORY_ITEMS_COLLAPSED;
+    let visibleJobsCount = 0;
+
+    dateKeysSorted.forEach(dateKey => {
+        const group = groupsByDate[dateKey];
+
+        const groupContainer = document.createElement('div');
+        groupContainer.className = 'history-day-group';
+
+        const header = document.createElement('div');
+        header.className = 'history-day-header d-flex justify-content-between align-items-center';
+        header.dataset.dateKey = dateKey;
+
+        const headerText = document.createElement('div');
+        headerText.className = 'history-day-title';
+        headerText.textContent = `${group.label} — ${group.prompts} prompts · ${group.images} images`;
+
+        const headerIcon = document.createElement('div');
+        headerIcon.className = 'history-day-toggle-icon';
+        const icon = document.createElement('i');
+        const collapsed = !!historyDayCollapsed[dateKey];
+        icon.className = collapsed ? 'bi bi-chevron-right' : 'bi bi-chevron-down';
+        headerIcon.appendChild(icon);
+
+        header.appendChild(headerText);
+        header.appendChild(headerIcon);
+
+        const body = document.createElement('div');
+        body.className = 'history-day-body';
+
+        // เลือก jobs ที่จะแสดงในก้อนนี้ตามโหมดและสถานะพับ/ขยาย
+        let jobsForThisGroup = [];
+        if (historyExpanded) {
+            // โหมดขยาย: แสดงทุก job ในทุกวัน แต่ถ้าวันนั้นถูกพับ ให้ไม่นับเป็น visible
+            jobsForThisGroup = group.jobs;
+            if (!collapsed) {
+                visibleJobsCount += jobsForThisGroup.length;
+            }
+        } else {
+            // โหมดย่อ: แสดงเฉพาะ jobs จากวันที่ไม่ถูกพับ จนครบโควตา MAX_HISTORY_ITEMS_COLLAPSED
+            if (!collapsed && remainingVisible > 0) {
+                jobsForThisGroup = group.jobs.slice(0, Math.max(0, remainingVisible));
+                remainingVisible -= jobsForThisGroup.length;
+                visibleJobsCount += jobsForThisGroup.length;
+            } else {
+                jobsForThisGroup = [];
+            }
+        }
+
+        jobsForThisGroup.forEach(job => {
+            const item = document.createElement('div');
+            item.className = 'list-group-item list-group-item-action';
         
         const statusIcon = job.status === 'completed' ? '✅' : 
                           job.status === 'cancelled' ? '⏹️' : '❌';
@@ -1360,12 +1788,15 @@ function renderHistory(jobs) {
         });
         
         const refBadge = job.has_reference ? '<span class="badge bg-info ms-1" title="Reference image">Ref</span>' : '';
+        const ccBadge = job.character_consistency ? '<span class="badge bg-secondary ms-1" title="Character consistency">CC</span>' : '';
+        const totalPrompts = job.total || (job.prompts ? job.prompts.length : 0);
+        const imagesCreated = job.success_count ?? job.completed ?? 0;
 
         item.innerHTML = `
             <div class="d-flex justify-content-between align-items-start">
                 <div class="flex-grow-1">
                     <div class="fw-bold mb-2">
-                        ${statusIcon} ${job.total} Prompts - ${job.success_count} completed ${refBadge}
+                        ${statusIcon} ${totalPrompts} prompts · ${imagesCreated} images ${refBadge}${ccBadge}
                     </div>
                     <div class="d-flex flex-wrap gap-3 small text-muted">
                         <span><i class="bi bi-clock"></i> ${dateStr}</span>
@@ -1399,8 +1830,39 @@ function renderHistory(jobs) {
         const deleteBtn = item.querySelector('.btn-history-delete');
         deleteBtn.addEventListener('click', () => deleteHistoryJob(job.id));
         
-        historyList.appendChild(item);
+        body.appendChild(item);
     });
+
+    // ถ้า group นี้ไม่มี job ที่จะแสดง และไม่ได้ถูกพับในโหมดย่อ → ข้ามทั้งก้อน
+    // (แต่ถ้าเป็นวันที่ถูกพับ ให้คงหัวข้อวันไว้ แม้จะไม่มี job แสดงใน less mode)
+    if (body.children.length === 0 && !collapsed && !historyExpanded) {
+        return;
+    }
+
+    // จัดการสถานะพับ/ขยาย (ให้ re-render ใหม่ทั้ง list เพื่ออัปเดตโควตา less history)
+    body.style.display = collapsed ? 'none' : '';
+    header.addEventListener('click', () => {
+        const isCollapsed = !!historyDayCollapsed[dateKey];
+        historyDayCollapsed[dateKey] = !isCollapsed;
+        renderHistory();
+    });
+
+    groupContainer.appendChild(header);
+    groupContainer.appendChild(body);
+    historyList.appendChild(groupContainer);
+    });
+
+    // อัปเดตข้อความปุ่ม Show all history ตามจำนวนที่ซ่อน
+    if (historyToggleContainer && historyToggleBtn) {
+        if (jobs.length > MAX_HISTORY_ITEMS_COLLAPSED) {
+            const hiddenCount = Math.max(0, jobs.length - visibleJobsCount);
+            historyToggleBtn.textContent = historyExpanded
+                ? 'Show less history'
+                : `Show all history (${hiddenCount})`;
+        } else {
+            historyToggleContainer.style.display = 'none';
+        }
+    }
 }
 
 /**
@@ -1721,6 +2183,53 @@ document.querySelectorAll('.custom-dropdown-menu .dropdown-item[data-value]').fo
             const select = dropdown.querySelector('select');
             const btnVal = dropdown.querySelector('.custom-dropdown-btn .custom-dropdown-value');
             if (select && btnVal) {
+                // Handle custom aspect ratio
+                if (select.id === 'aspectRatioSelect' && value === 'custom') {
+                    // ตรวจสอบว่าเป็น Pro model หรือไม่
+                    const modelSelect = document.getElementById('modelSelect');
+                    const isPro = modelSelect?.value?.includes('pro');
+                    if (!isPro) {
+                        showToast('Custom aspect ratio only works with Pro model', 'warning');
+                        return;
+                    }
+                    
+                    select.value = 'custom';
+                    btnVal.innerHTML = '<i class="bi bi-pencil-square me-1"></i>Custom';
+                    
+                    // Query element ใหม่ทุกครั้ง (หาใน parent container ของ dropdown)
+                    const dropdownContainer = dropdown.closest('.col-md-4') || dropdown.parentElement;
+                    let customInput = dropdownContainer?.querySelector('#customAspectRatioInput') || document.getElementById('customAspectRatioInput');
+                    const customWidth = document.getElementById('customAspectRatioWidth');
+                    
+                    // แสดง custom input ทันที (ไม่ต้องรอ dropdown ปิด)
+                    if (customInput) {
+                        customInput.removeAttribute('style');
+                        customInput.style.display = 'block';
+                    }
+                    if (customWidth) {
+                        setTimeout(() => customWidth.focus(), 100);
+                    }
+                    return;
+                }
+                
+                // Hide custom input if selecting preset ratio
+                if (select.id === 'aspectRatioSelect' && value !== 'custom') {
+                    if (customAspectRatioInput) customAspectRatioInput.style.display = 'none';
+                    if (customAspectRatioWidth) customAspectRatioWidth.value = '';
+                    if (customAspectRatioHeight) customAspectRatioHeight.value = '';
+                    if (customAspectRatioError) customAspectRatioError.style.display = 'none';
+                    
+                    // Reset lock state
+                    customAspectRatioLocked = false;
+                    lockedAspectRatio = null;
+                    if (customAspectRatioLockIcon) customAspectRatioLockIcon.className = 'bi bi-unlock';
+                    if (customAspectRatioLockBtn) {
+                        customAspectRatioLockBtn.title = 'Lock aspect ratio';
+                        customAspectRatioLockBtn.classList.remove('btn-secondary');
+                        customAspectRatioLockBtn.classList.add('btn-outline-secondary');
+                    }
+                }
+                
                 select.value = value;
                 // Aspect Ratio: อัพเดททั้ง preview + text
                 const ratioPreview = item.querySelector('.ratio-preview');
@@ -1738,8 +2247,13 @@ document.querySelectorAll('.custom-dropdown-menu .dropdown-item[data-value]').fo
                     
                     // ถ้าเปลี่ยนเป็น Fast และมี aspect ratio ที่ไม่ใช่ 1:1
                     if (!isPro && currentAspectRatio !== '1:1') {
-                        showToast('Aspect ratio other than 1:1 only works with Pro model. Switching to 1:1.', 'warning');
-                        resetAspectRatioTo1x1();
+                        if (currentAspectRatio === 'custom') {
+                            showToast('Custom aspect ratio only works with Pro model. Switching to 1:1.', 'warning');
+                            resetAspectRatioTo1x1();
+                        } else {
+                            showToast('Aspect ratio other than 1:1 only works with Pro model. Switching to 1:1.', 'warning');
+                            resetAspectRatioTo1x1();
+                        }
                     }
                     
                     // อัพเดตสถานะ enable/disable
@@ -1749,6 +2263,23 @@ document.querySelectorAll('.custom-dropdown-menu .dropdown-item[data-value]').fo
         }
     });
 });
+
+// Character consistency: บังคับ Sequential เมื่อเปิด
+function updateCharacterConsistencyMode() {
+    const checked = characterConsistencyCheck?.checked;
+    const parallelItem = modeDropdownMenu?.querySelector('[data-value="parallel"]');
+    if (checked) {
+        if (modeSelect) modeSelect.value = 'sequential';
+        const btnVal = modeDropdownBtn?.querySelector('.custom-dropdown-value');
+        if (btnVal) btnVal.textContent = 'Sequential (one by one)';
+        if (parallelItem) parallelItem.classList.add('disabled');
+    } else {
+        if (parallelItem) parallelItem.classList.remove('disabled');
+    }
+}
+if (characterConsistencyCheck) {
+    characterConsistencyCheck.addEventListener('change', updateCharacterConsistencyMode);
+}
 
 // Mode tabs
 if (modeTextOnlyBtn) modeTextOnlyBtn.addEventListener('click', () => switchMode('text'));
@@ -1950,6 +2481,21 @@ if (deletePresetConfirmBtn) {
     });
 }
 
+// Variations dropdown (images per prompt)
+if (variationsDropdownMenu) {
+    variationsDropdownMenu.addEventListener('click', (e) => {
+        const item = e.target.closest('a[data-value]');
+        if (!item) return;
+        e.preventDefault();
+        const val = item.dataset.value;
+        if (variationsPerPromptSelect) variationsPerPromptSelect.value = val;
+        if (variationsDropdownLabel) variationsDropdownLabel.textContent = val;
+        variationsDropdownMenu.querySelectorAll('.dropdown-item').forEach(menuItem => {
+            menuItem.classList.toggle('active', menuItem === item);
+        });
+    });
+}
+
 // Clear button
 clearBtn.addEventListener('click', clearForm);
 
@@ -1965,10 +2511,30 @@ if (cancelJobBtn) cancelJobBtn.addEventListener('click', cancelJob);
 // History buttons
 if (refreshHistoryBtn) refreshHistoryBtn.addEventListener('click', fetchHistory);
 if (deleteAllHistoryBtn) deleteAllHistoryBtn.addEventListener('click', deleteAllHistory);
+if (historyToggleBtn) {
+    historyToggleBtn.addEventListener('click', () => {
+        historyExpanded = !historyExpanded;
+        renderHistory();
+    });
+}
 
 // Cleanup buttons
 if (refreshCleanupBtn) refreshCleanupBtn.addEventListener('click', fetchCleanupStatus);
 if (cleanupNowBtn) cleanupNowBtn.addEventListener('click', performCleanupNow);
+
+// Usage guide copy button
+const copyUsageGuideBtn = document.getElementById('copyUsageGuideBtn');
+const usageGuideCopyContent = document.getElementById('usageGuideCopyContent');
+if (copyUsageGuideBtn && usageGuideCopyContent) {
+    copyUsageGuideBtn.addEventListener('click', async () => {
+        try {
+            await navigator.clipboard.writeText(usageGuideCopyContent.value);
+            showToast('Copied! ส่งให้ ChatGPT ได้เลย', 'success');
+        } catch (err) {
+            showToast('Copy ไม่สำเร็จ', 'error');
+        }
+    });
+}
 
 // ===== Initialization =====
 
@@ -1980,6 +2546,95 @@ checkApiKey();
 
 // Add initial prompt input
 addPromptInput();
+
+// Custom aspect ratio input handlers
+function updateCustomAspectRatio() {
+    if (customAspectRatioError) customAspectRatioError.style.display = 'none';
+    
+    // ถ้า lock อยู่ → ไม่ต้อง parse ใหม่ (ใช้ locked ratio)
+    if (customAspectRatioLocked && lockedAspectRatio !== null) {
+        const parsed = parseCustomAspectRatio();
+        if (parsed.success) {
+            if (aspectRatioSelect) aspectRatioSelect.value = parsed.ratio;
+            if (customAspectRatioError) customAspectRatioError.style.display = 'none';
+            
+            // Update button display
+            if (aspectRatioDropdownBtn) {
+                const btnVal = aspectRatioDropdownBtn.querySelector('.custom-dropdown-value');
+                if (btnVal) {
+                    btnVal.innerHTML = `<i class="bi bi-pencil-square me-1"></i>Custom (${parsed.ratio})`;
+                }
+            }
+        }
+        return;
+    }
+    
+    // ถ้า unlock → parse ตามปกติ
+    const parsed = parseCustomAspectRatio();
+    if (parsed.success) {
+        if (aspectRatioSelect) aspectRatioSelect.value = parsed.ratio;
+        if (customAspectRatioError) customAspectRatioError.style.display = 'none';
+        
+        // Update button display
+        if (aspectRatioDropdownBtn) {
+            const btnVal = aspectRatioDropdownBtn.querySelector('.custom-dropdown-value');
+            if (btnVal) {
+                btnVal.innerHTML = `<i class="bi bi-pencil-square me-1"></i>Custom (${parsed.ratio})`;
+            }
+        }
+    } else {
+        if (aspectRatioSelect) aspectRatioSelect.value = 'custom';
+        if (customAspectRatioError) {
+            customAspectRatioError.textContent = parsed.error;
+            customAspectRatioError.style.display = 'block';
+        }
+    }
+}
+
+if (customAspectRatioWidth) {
+    customAspectRatioWidth.addEventListener('input', () => {
+        if (customAspectRatioLocked) {
+            updateAspectRatioFromLock('width');
+        } else {
+            updateCustomAspectRatio();
+        }
+    });
+    customAspectRatioWidth.addEventListener('blur', updateCustomAspectRatio);
+}
+
+if (customAspectRatioHeight) {
+    customAspectRatioHeight.addEventListener('input', () => {
+        if (customAspectRatioLocked) {
+            updateAspectRatioFromLock('height');
+        } else {
+            updateCustomAspectRatio();
+        }
+    });
+    customAspectRatioHeight.addEventListener('blur', updateCustomAspectRatio);
+}
+
+if (customAspectRatioUnitSelect) {
+    customAspectRatioUnitSelect.addEventListener('change', updateCustomAspectRatio);
+}
+
+if (customAspectRatioLockBtn) {
+    customAspectRatioLockBtn.addEventListener('click', toggleAspectRatioLock);
+}
+
+// Bootstrap dropdown event สำหรับ aspect ratio (เพื่อให้แน่ใจว่า custom input แสดง)
+if (aspectRatioDropdownBtn) {
+    aspectRatioDropdownBtn.addEventListener('hidden.bs.dropdown', () => {
+        // เมื่อ dropdown ปิด ให้ตรวจสอบว่าถ้าเลือก custom แล้วให้แสดง input
+        if (aspectRatioSelect?.value === 'custom') {
+            const customInput = document.getElementById('customAspectRatioInput');
+            if (customInput) {
+                customInput.removeAttribute('style');
+                customInput.style.display = 'block';
+                customInput.style.setProperty('display', 'block', 'important');
+            }
+        }
+    });
+}
 
 // อัปเดตสถานะ aspect ratio ตาม model ที่เลือก
 updateAspectRatioAvailability();
