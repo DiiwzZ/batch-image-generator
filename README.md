@@ -8,14 +8,16 @@
 - **สองโหมด**: Text only และ Reference image (อัปโหลดรูปอ้างอิงเพื่อคงคนเดิม/สิ่งเดิม)
 - **Reference Type**: Person / Animal / Object พร้อม Auto-detect และ preset Master/Negative
 - **Batch Input**: วาง prompts หลายๆ บรรทัดพร้อมกัน
-- **Master/Negative Prompts**: เพิ่ม Master Prompts (prefix) และ Negative Prompts (avoid) ให้ทุก prompt
+- **Master / Suffix / Negative Prompts**: เพิ่ม prefix, suffix, และ avoid ให้ทุก prompt อัตโนมัติ
 - **Presets**: บันทึกและโหลดชุด Master/Negative ได้
 - **Aspect Ratio**: เลือก 1:1, 16:9, 9:16 ฯลฯ (non-1:1 ใช้ได้กับ Pro เท่านั้น)
 - **Flexible Generation**: Sequential (ทีละรูป) หรือ Parallel (พร้อมกัน)
 - **Model Selection**: Nano Banana (fast) และ Nano Banana Pro (quality)
+- **Auto-retry**: retry อัตโนมัติสูงสุด 2 ครั้งเมื่อ generation ล้มเหลว
 - **Real-time Progress**: ติดตามความคืบหน้าแบบ real-time
+- **Browser Notification**: แจ้งเตือนเมื่อ batch เสร็จ (แม้เปิด tab อื่น)
 - **Job History**: ดูประวัติ, Rerun, Delete
-- **Download**: ดาวน์โหลดทีละรูปหรือทั้งหมดเป็น ZIP
+- **Download**: ดาวน์โหลดทีละรูป หรือทั้งหมดเป็น ZIP (พร้อม manifest.json)
 - **Image Preview**: คลิกรูปเพื่อดูตัวอย่างเต็ม
 - **Dark Mode**: โหมด Light/Dark
 - **Auto-cleanup**: ลบรูปเก่าอัตโนมัติ (เปิด/ปิดได้)
@@ -23,7 +25,7 @@
 
 ## 📋 ความต้องการ
 
-- Python 3.8+
+- Python 3.11+
 - Google Gemini API Key ([รับได้ที่นี่](https://aistudio.google.com/app/apikey))
 
 ## 🚀 การติดตั้ง
@@ -37,7 +39,11 @@ pip install -r requirements.txt
 
 3. (Optional) สร้างไฟล์ `.env` สำหรับการตั้งค่า:
 ```bash
+# macOS / Linux
 cp .env.example .env
+
+# Windows
+copy .env.example .env
 ```
 
 **หมายเหตุ:** ไม่จำเป็นต้องใส่ `GOOGLE_API_KEY` ใน `.env` เพราะแต่ละ user จะใส่ API key ผ่าน UI
@@ -71,7 +77,7 @@ A sunset over the ocean
    - **Model**: Nano Banana (เร็ว) หรือ Nano Banana Pro (คุณภาพสูง)
    - **Mode**: Sequential (ทีละรูป) หรือ Parallel (พร้อมกัน)
    - **Aspect Ratio**: 1:1, 16:9, 9:16 ฯลฯ
-   - **Master Prompts / Negative Prompts**: (ถ้าต้องการ) หรือโหลด Preset
+   - **Master Prompts / Suffix / Negative Prompts**: (ถ้าต้องการ) หรือโหลด Preset
 
 7. กด "Generate Images" และรอดูผลลัพธ์!
 
@@ -91,7 +97,7 @@ A sunset over the ocean
 ## 📁 โครงสร้างโปรเจค
 
 ```
-other_forD/
+batch-image-generator/
 ├── app.py                 # Flask web server
 ├── image_generator.py     # Image generation logic
 ├── requirements.txt       # Python dependencies
@@ -116,6 +122,7 @@ other_forD/
 
 แก้ไขใน `.env` (optional):
 
+- `SECRET_KEY`: secret key สำหรับ Flask session (ควรตั้งค่าใน production)
 - `MAX_WORKERS`: จำนวนรูปที่ generate พร้อมกันสูงสุด (default: 3)
 - `AUTO_CLEANUP_ENABLED`: เปิด/ปิด auto-cleanup (true/false)
 - `AUTO_CLEANUP_DAYS`: ลบรูปเก่ากว่า X วัน (default: 7)
@@ -151,8 +158,9 @@ pip install -r requirements.txt --upgrade
 - ตรวจสอบว่า key ยังใช้งานได้ที่ [AI Studio](https://aistudio.google.com)
 
 ### Generation Failed
-- ตรวจสอบ prompt ว่าไม่มีเนื้อหาที่ไม่เหมาะสม
-- ลอง generate ใหม่อีกครั้ง
+- ระบบจะ retry อัตโนมัติสูงสุด 2 ครั้ง — ส่วนใหญ่หายเองโดยไม่ต้องทำอะไร
+- ถ้ายัง failed หลัง retry ให้ตรวจสอบ prompt ว่าไม่มีเนื้อหาที่ไม่เหมาะสม
+- ลอง generate ใหม่อีกครั้ง หรือลด Parallel workers ลง
 
 ## 📝 License
 

@@ -711,6 +711,44 @@ body[data-theme="dark"] .btn-outline-primary:disabled {
     transform: translateY(0);
 }
 
+/* ===== Variations Dropdown (images per prompt) ===== */
+.variations-dropdown {
+    display: inline-flex;
+}
+
+.variations-dropdown .variations-dropdown-btn {
+    min-width: 3.5rem;
+    padding: 14px 16px;
+    border-radius: 12px;
+}
+
+.variations-dropdown-menu {
+    width: 100%;
+    min-width: unset;
+    left: 0 !important;
+    right: 0 !important;
+    padding: 0.5rem;
+    border-radius: 12px;
+    border: 1px solid var(--theme-border);
+    background: var(--theme-card-bg) !important;
+    box-shadow: 0 8px 24px var(--theme-shadow);
+}
+
+.variations-dropdown-menu .dropdown-item {
+    padding: 0.5rem 1rem;
+    text-align: center;
+    border-radius: 8px;
+}
+
+.variations-dropdown-menu .dropdown-item:hover {
+    background: var(--theme-hover-bg);
+}
+
+.variations-dropdown-menu .dropdown-item.active {
+    background: var(--theme-accent-light);
+    color: var(--theme-accent);
+}
+
 /* ===== API Key Modal UX ===== */
 .api-key-modal-content,
 .preset-modal-content,
@@ -1154,6 +1192,47 @@ body[data-theme="dark"] .custom-toast .btn-close {
     vertical-align: bottom;
 }
 
+/* ===== Job History - Grouped by Day ===== */
+.history-day-group {
+    border: 1px solid var(--theme-border);
+    border-radius: 10px;
+    margin-bottom: 10px;
+    background: var(--theme-card-bg);
+    overflow: hidden;
+}
+
+.history-day-header {
+    padding: 8px 12px;
+    background: var(--theme-hover-bg);
+    cursor: pointer;
+    font-size: 0.85rem;
+}
+
+.history-day-title {
+    font-weight: 500;
+}
+
+.history-day-toggle-icon {
+    color: var(--theme-text-muted);
+    display: flex;
+    align-items: center;
+}
+
+.history-day-body {
+    padding: 0;
+}
+
+.history-day-body .list-group-item {
+    border-left: none !important;
+    border-right: none !important;
+    border-radius: 0 !important;
+}
+
+.history-day-body .list-group-item:last-child {
+    border-bottom-left-radius: 10px !important;
+    border-bottom-right-radius: 10px !important;
+}
+
 /* ===== History Items - เพิ่มเติม ===== */
 .list-group-item {
     transition: all 0.25s ease;
@@ -1203,6 +1282,15 @@ body[data-theme="dark"] .progress-bar-custom {
 body[data-theme="dark"] .dropdown-menu {
     background: var(--theme-card-bg) !important;
     border-color: var(--theme-border);
+}
+
+body[data-theme="dark"] .variations-dropdown-menu .dropdown-item:hover {
+    background: var(--theme-hover-bg);
+}
+
+body[data-theme="dark"] .variations-dropdown-menu .dropdown-item.active {
+    background: var(--theme-accent-light);
+    color: var(--theme-accent);
 }
 
 body[data-theme="dark"] footer {
@@ -1407,4 +1495,17 @@ body[data-theme="dark"] .btn-remove-prompt:hover {
 #loadingOverlay .modal-content {
     background: rgba(0, 0, 0, 0.5) !important;
     backdrop-filter: blur(10px);
+}
+
+/* ===== Usage Guide (Text only) ===== */
+.usage-guide-card {
+    background: var(--theme-card-bg);
+}
+.usage-guide-text {
+    font-size: 0.8rem;
+    color: var(--theme-text-muted);
+    white-space: pre-wrap;
+    font-family: inherit;
+    border: none;
+    background: transparent;
 }
