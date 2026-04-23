@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Flask Dev Server",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["app.py"],
+      "port": 5000
+    },
+    {
+      "name": "Gunicorn (production-like)",
+      "runtimeExecutable": "gunicorn",
+      "runtimeArgs": ["-w", "4", "-b", "0.0.0.0:5000", "app:app"],
+      "port": 5000
+    }
+  ]
+}

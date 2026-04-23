@@ -36,7 +36,7 @@ def get_aspect_ratio_prefix(aspect_ratio: str) -> str:
 
 class ImageGenerator:
     """Class สำหรับจัดการการสร้างรูปภาพด้วย Google Gemini API"""
-    
+
     # Model options
     MODEL_NANO_BANANA = "models/gemini-2.5-flash-image"
     MODEL_NANO_BANANA_PRO = "models/gemini-3-pro-image-preview"
@@ -125,61 +125,55 @@ class ImageGenerator:
             "model": model,
             "timestamp": datetime.now().isoformat()
         }
-        try:
-            generation_model = genai.GenerativeModel(model_name=model)
-            pil_image = Image.open(io.BytesIO(reference_image_bytes))
 
-            # Build full prompt: hint + aspect + master + prompt + suffix + negative
-            hint = self._get_reference_type_hint(reference_type) if reference_type else ""
-            aspect_prefix = get_aspect_ratio_prefix(aspect_ratio or "1:1")
-            full_prompt = f"{hint}{aspect_prefix}{master_prompts}{prompt}{suffix}"
-            if negative_prompts:
-                full_prompt += f", avoid: {negative_prompts}"
-            full_prompt = full_prompt.strip()
+        generation_model = genai.GenerativeModel(model_name=model)
+        pil_ref = Image.open(io.BytesIO(reference_image_bytes))
 
-            # Gemini accepts [image, text] for image editing
-            response = generation_model.generate_content([pil_image, full_prompt])
+        hint = self._get_reference_type_hint(reference_type) if reference_type else ""
+        aspect_prefix = get_aspect_ratio_prefix(aspect_ratio or "1:1")
+        full_prompt = f"{hint}{aspect_prefix}{master_prompts}{prompt}{suffix}"
+        if negative_prompts:
+            full_prompt += f", avoid: {negative_prompts}"
+        full_prompt = full_prompt.strip()
 
-            if response.parts:
-                for part in response.parts:
-                    if hasattr(part, 'inline_data') and part.inline_data:
-                        image_bytes = part.inline_data.data
-                        pil_out = Image.open(io.BytesIO(image_bytes))
-                        ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-                        filename = f"{filename_prefix}_{ts}.png"
-                        filepath = os.path.join(self.output_dir, filename)
-                        pil_out.save(filepath, "PNG")
-                        result["status"] = "completed"
-                        result["filename"] = filename
-                        result["filepath"] = filepath
-                        return result
+        last_error = None
+        for attempt in range(1 + self.MAX_RETRIES):
+            if attempt > 0:
+                print(f"[ImageGen] Retry {attempt}/{self.MAX_RETRIES} (reference)...")
+                time.sleep(self.RETRY_DELAY)
+            try:
+                response = generation_model.generate_content([pil_ref, full_prompt])
+                if response.parts:
+                    for part in response.parts:
+                        if hasattr(part, 'inline_data') and part.inline_data:
+                            pil_out = Image.open(io.BytesIO(part.inline_data.data))
+                            ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+                            filename = f"{filename_prefix}_{ts}.png"
+                            filepath = os.path.join(self.output_dir, filename)
+                            pil_out.save(filepath, "PNG")
+                            result["status"] = "completed"
+                            result["filename"] = filename
+                            result["filepath"] = filepath
+                            return result
+                last_error = "No image data in response"
+            except Exception as e:
+                last_error = str(e)
+                print(f"[ImageGen] Attempt {attempt + 1} failed (reference): {last_error}")
 
-            result["status"] = "failed"
-            result["error"] = "No image data in response"
-        except Exception as e:
-            result["status"] = "failed"
-            result["error"] = str(e)
+        result["status"] = "failed"
+        result["error"] = last_error
         return result
 
+    MAX_RETRIES = 2  # จำนวนครั้งที่ retry เมื่อ fail (ไม่นับครั้งแรก)
+    RETRY_DELAY = 3  # วินาทีระหว่าง retry
+
     def generate_single(
-        self, 
-        prompt: str, 
+        self,
+        prompt: str,
         model: str = MODEL_NANO_BANANA,
         filename_prefix: str = "img",
         aspect_ratio: str = "1:1"
     ) -> Dict:
-        """
-        Generate รูปภาพเดียวจาก prompt
-        
-        Args:
-            prompt: Text prompt สำหรับสร้างรูป
-            model: Model ที่จะใช้ (MODEL_NANO_BANANA หรือ MODEL_NANO_BANANA_PRO)
-            filename_prefix: Prefix สำหรับชื่อไฟล์
-            aspect_ratio: Aspect ratio ของรูป (1:1, 16:9, 9:16, etc.)
-            
-        Returns:
-            Dict ที่มี status, filename, และข้อมูลอื่นๆ
-        """
         result = {
             "status": "pending",
             "prompt": prompt,
@@ -189,59 +183,36 @@ class ImageGenerator:
             "aspect_ratio": aspect_ratio,
             "timestamp": datetime.now().isoformat()
         }
-        
-        try:
-            # Generate image using GenerativeModel
-            generation_model = genai.GenerativeModel(model_name=model)
-            
-            # Aspect ratio จะถูกเพิ่มโดย batch methods (sequential/parallel)
-            # ที่นี่รับ prompt ที่ประมวลผลเสร็จแล้ว
-            final_prompt = prompt
-            
-            # Log the final prompt for debugging
-            print(f"[ImageGen] Generating image (aspect_ratio={aspect_ratio})")
-            print(f"[ImageGen] Prompt length: {len(final_prompt)} chars")
-            if len(final_prompt) <= 300:
-                print(f"[ImageGen] Prompt: {final_prompt}")
-            else:
-                print(f"[ImageGen] Prompt (first 300 chars): {final_prompt[:300]}...")
-            
-            # Generate content
-            response = generation_model.generate_content(final_prompt)
-            
-            # Save image from response
-            if response.parts:
-                for part in response.parts:
-                    # Check if part has inline_data (image data)
-                    if hasattr(part, 'inline_data') and part.inline_data:
-                        # Get image bytes
-                        image_bytes = part.inline_data.data
-                        
-                        # Convert to PIL Image
-                        pil_image = Image.open(io.BytesIO(image_bytes))
-                        
-                        # Generate filename
-                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-                        filename = f"{filename_prefix}_{timestamp}.png"
-                        filepath = os.path.join(self.output_dir, filename)
-                        
-                        # Save
-                        pil_image.save(filepath, "PNG")
-                        
-                        result["status"] = "completed"
-                        result["filename"] = filename
-                        result["filepath"] = filepath
-                        
-                        return result
-            
-            # ถ้าไม่มีรูปใน response
-            result["status"] = "failed"
-            result["error"] = "No image data in response"
-            
-        except Exception as e:
-            result["status"] = "failed"
-            result["error"] = str(e)
-        
+
+        generation_model = genai.GenerativeModel(model_name=model)
+        print(f"[ImageGen] Generating image (aspect_ratio={aspect_ratio}), prompt length={len(prompt)}")
+
+        last_error = None
+        for attempt in range(1 + self.MAX_RETRIES):
+            if attempt > 0:
+                print(f"[ImageGen] Retry {attempt}/{self.MAX_RETRIES}...")
+                time.sleep(self.RETRY_DELAY)
+            try:
+                response = generation_model.generate_content(prompt)
+                if response.parts:
+                    for part in response.parts:
+                        if hasattr(part, 'inline_data') and part.inline_data:
+                            pil_image = Image.open(io.BytesIO(part.inline_data.data))
+                            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+                            filename = f"{filename_prefix}_{timestamp}.png"
+                            filepath = os.path.join(self.output_dir, filename)
+                            pil_image.save(filepath, "PNG")
+                            result["status"] = "completed"
+                            result["filename"] = filename
+                            result["filepath"] = filepath
+                            return result
+                last_error = "No image data in response"
+            except Exception as e:
+                last_error = str(e)
+                print(f"[ImageGen] Attempt {attempt + 1} failed: {last_error}")
+
+        result["status"] = "failed"
+        result["error"] = last_error
         return result
 
     def generate_batch_with_reference_sequential(
@@ -469,7 +440,7 @@ class ImageGenerator:
             if negative_prompts:
                 full_prompt += f", avoid: {negative_prompts}"
             full_prompt = full_prompt.strip()
-            
+
             # รัน generate_single ใน thread - รอเป็นช่วงสั้นๆ แล้วเช็ค cancel เพื่อไม่ให้กดหยุดแล้วค้าง
             executor = ThreadPoolExecutor(max_workers=1)
             future = executor.submit(

@@ -21,7 +21,7 @@ load_dotenv()
 
 # Initialize Flask app
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.urandom(24)
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', os.urandom(24))
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
 
 # Configuration
@@ -891,14 +891,34 @@ def download_all(job_id):
         # Create ZIP file
         zip_filename = f"batch_{job_id[:8]}.zip"
         zip_path = os.path.join(STATIC_FOLDER, zip_filename)
-        
+
+        manifest = {
+            'job_id': job['id'],
+            'created_at': job.get('created_at'),
+            'finished_at': job.get('finished_at'),
+            'model': job.get('model'),
+            'mode': job.get('mode'),
+            'aspect_ratio': job.get('aspect_ratio', '1:1'),
+            'master_prompts': job.get('master_prompts', ''),
+            'suffix': job.get('suffix', ''),
+            'negative_prompts': job.get('negative_prompts', ''),
+            'images': []
+        }
+
         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-            for result in job['results']:
+            for i, result in enumerate(job['results']):
                 if result['status'] == 'completed' and result['filename']:
                     filepath = os.path.join(STATIC_FOLDER, result['filename'])
                     if os.path.exists(filepath):
                         zipf.write(filepath, result['filename'])
-        
+                        manifest['images'].append({
+                            'index': i + 1,
+                            'filename': result['filename'],
+                            'prompt': result.get('prompt', ''),
+                            'timestamp': result.get('timestamp', '')
+                        })
+            zipf.writestr('manifest.json', json.dumps(manifest, ensure_ascii=False, indent=2))
+
         return send_file(zip_path, as_attachment=True, download_name=zip_filename)
     
     except Exception as e:

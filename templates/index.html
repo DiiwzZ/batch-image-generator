@@ -262,7 +262,7 @@
                             <!-- Prompt items will be added here dynamically -->
                         </div>
                         
-                        <button id="addPromptBtn" class="btn btn-primary" style="border-radius: 20px; padding: 8px 20px;">
+                        <button id="addPromptBtn" class="btn btn-primary btn-add-prompt">
                             <i class="bi bi-plus-circle"></i> Add Prompt
                         </button>
                         </div>
@@ -323,7 +323,7 @@
                                 </span>
                             </div>
                             <div class="mb-3" id="promptsContainerRef"></div>
-                            <button id="addPromptBtnRef" class="btn btn-primary" style="border-radius: 20px; padding: 8px 20px;">
+                            <button id="addPromptBtnRef" class="btn btn-primary btn-add-prompt">
                                 <i class="bi bi-plus-circle"></i> Add Prompt
                             </button>
                         </div>
@@ -434,7 +434,7 @@
                                     <label for="masterPromptsInput" class="form-label text-muted small">
                                         <i class="bi bi-stars me-1"></i> Master Prompts (prefix)
                                     </label>
-                                    <input type="text" class="form-control" id="masterPromptsInput" placeholder="e.g. high quality, 4K, masterclass" style="border-radius: 6px;">
+                                    <input type="text" class="form-control" id="masterPromptsInput" placeholder="e.g. high quality, 4K, masterclass">
                                     <div class="form-text small">Added before every prompt</div>
                                     <div class="mt-3">
                                         <label class="form-label text-muted small">Load Preset</label>
@@ -465,7 +465,7 @@
                                     <label for="suffixInput" class="form-label text-muted small">
                                         <i class="bi bi-file-text me-1"></i> Suffix
                                     </label>
-                                    <input type="text" class="form-control" id="suffixInput" placeholder="e.g. professional photography, detailed" style="border-radius: 6px;">
+                                    <input type="text" class="form-control" id="suffixInput" placeholder="e.g. professional photography, detailed">
                                     <div class="form-text small">Added after every prompt</div>
                                 </div>
 
@@ -473,7 +473,7 @@
                                     <label for="negativePromptsInput" class="form-label text-muted small">
                                         <i class="bi bi-slash-circle me-1"></i> Negative Prompts
                                     </label>
-                                    <input type="text" class="form-control" id="negativePromptsInput" placeholder="e.g. blurry, low quality, distorted, watermark" style="border-radius: 6px;">
+                                    <input type="text" class="form-control" id="negativePromptsInput" placeholder="e.g. blurry, low quality, distorted, watermark">
                                     <div class="form-text small">Added at end as ", avoid: ..."</div>
                                 </div>
                             </div>
@@ -497,11 +497,10 @@
             <div class="col-12" id="progressSection" style="display: none;">
                 <div class="card shadow-sm progress-card">
                     <div class="card-body">
-                        <div class="d-flex justify-content-between align-items-center mb-4">
+                        <div class="mb-4">
                             <h5 class="card-title mb-0 d-flex align-items-center gap-2">
                                 <i class="bi bi-graph-up-arrow text-primary"></i> Progress
                             </h5>
-                            <span class="text-muted small" id="progressSummary">0 / 0 · 0%</span>
                         </div>
                         
                         <div class="progress-block mb-4">
@@ -527,7 +526,7 @@
                         </div>
 
                         <div class="d-flex justify-content-center mb-4">
-                            <button id="cancelJobBtn" class="btn btn-outline-danger btn-sm" style="display: none;" title="Stop generation and show completed images">
+                            <button id="cancelJobBtn" class="btn btn-outline-danger" style="display: none;" title="Stop generation and show completed images">
                                 <i class="bi bi-stop-circle me-1"></i> Stop / Cancel
                             </button>
                         </div>

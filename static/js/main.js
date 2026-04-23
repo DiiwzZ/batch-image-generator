@@ -1299,8 +1299,9 @@ async function startGeneration() {
             });
             
             // เริ่ม polling status
+            requestNotificationPermission();
             startStatusPolling();
-            
+
             // Disable generate button และแสดงปุ่มหยุด
             generateBtn.disabled = true;
             if (cancelJobBtn) cancelJobBtn.style.display = 'inline-flex';
@@ -1317,6 +1318,22 @@ async function startGeneration() {
     } finally {
         setLoading(false);
     }
+}
+
+// ===== Browser Notifications =====
+
+function requestNotificationPermission() {
+    if ('Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission();
+    }
+}
+
+function sendBatchNotification(completed, total) {
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    new Notification('Batch complete!', {
+        body: `Generated ${completed}/${total} images`,
+        icon: '/static/favicon.ico'
+    });
 }
 
 /**
@@ -1361,11 +1378,12 @@ async function checkStatus() {
                 if (cancelJobBtn) {
                     cancelJobBtn.style.display = 'none';
                     cancelJobBtn.disabled = false;
-                    cancelJobBtn.textContent = '⏹ Stop / Cancel';
+                    cancelJobBtn.innerHTML = '<i class="bi bi-stop-circle me-1"></i> Stop / Cancel';
                 }
                 
                 if (result.job.status === 'completed') {
                     showToast('Image generation complete!', 'success');
+                    sendBatchNotification(result.job.completed - result.job.failed, result.job.total);
                 } else if (result.job.status === 'cancelled') {
                     showToast('Cancelled. Showing completed images.', 'warning');
                 } else {
@@ -1593,7 +1611,7 @@ async function cancelJob() {
     if (!currentJobId || !cancelJobBtn) return;
     
     cancelJobBtn.disabled = true;
-    cancelJobBtn.textContent = '⏳ Stopping...';
+    cancelJobBtn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i> Stopping...';
     
     try {
         const response = await fetch(`/api/cancel/${currentJobId}`, { method: 'POST' });
@@ -2043,8 +2061,9 @@ async function rerunJob(jobId, jobData) {
             });
             
             // เริ่ม polling status
+            requestNotificationPermission();
             startStatusPolling();
-            
+
             // Disable generate button
             generateBtn.disabled = true;
             if (cancelJobBtn) cancelJobBtn.style.display = 'inline-flex';
